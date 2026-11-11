@@ -11,3 +11,4 @@
   - [ ] 2g Admin numbers page, export and delete my data; point "Open the app" (src/site/config.ts) at /mindy
 - [ ] Stage 3: Mindy on WhatsApp and Instagram (needs Meta app credentials from the user)
 - [ ] Before launch: real WhatsApp number, Instagram handle (src/site/config.ts) and company details in privacy/terms
+- [ ] New ask: "Mindy for older people": very simple helper for people who find phones hard; help with everything incl. medications; pointing-cursor guidance like Clicky on Mac, but on phone. Scope to confirm with user.
