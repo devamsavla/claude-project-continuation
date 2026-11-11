@@ -1,19 +1,101 @@
 {
   "source": "Claude desktop launch kit (whatsonyourmind-launch-kit.zip)",
-  "stages": ["1 website + design tour", "2 real Mindy web app", "3 Mindy on WhatsApp and Instagram"],
+  "stages": [
+    "1 website + design tour",
+    "2 real Mindy web app",
+    "3 Mindy on WhatsApp and Instagram"
+  ],
   "capabilities": [
-    {"capability": "website pages (home, whatsapp, instagram, app, privacy, terms)", "source": "website/*.html + assets/site.css + site.js", "outcome": "migrate", "status": "in_progress", "next_action": "port to routes, verify visually"},
-    {"capability": "design tour prototype", "source": "website/try/index.html (= app-prototype)", "outcome": "migrate as static file", "status": "in_progress", "next_action": "serve at /try/"},
-    {"capability": "waitlist form", "source": "POST /api/waitlist (FastAPI + SQLite)", "outcome": "migrate to Lovable Cloud", "status": "in_progress", "next_action": "table + join function"},
-    {"capability": "admin stats page", "source": "/admin?key=", "outcome": "migrate", "status": "pending", "next_action": "stage 2"},
-    {"capability": "real web app (friends, chats, plans, watch parties, games, reminders, saves, lists, charts, passport)", "source": "backend/webapp + api.py + realtime.py + games.py + db.py", "outcome": "migrate to Lovable Cloud", "status": "pending", "next_action": "stage 2"},
-    {"capability": "auth (sign in with WhatsApp code)", "source": "auth.py", "outcome": "replace with Lovable auth", "status": "pending", "next_action": "stage 2"},
-    {"capability": "push notifications (Web Push)", "source": "realtime.py / VAPID", "outcome": "migrate", "status": "pending", "next_action": "stage 2"},
-    {"capability": "AI brain (Claude)", "source": "brain.py", "outcome": "decide in stage 2", "status": "pending", "next_action": "stage 2"},
-    {"capability": "WhatsApp webhook bot", "source": "/webhook, handlers.py, whatsapp.py", "outcome": "preserve provider (Meta WhatsApp Cloud API)", "status": "pending", "next_action": "stage 3; needs Meta credentials"},
-    {"capability": "Instagram webhook bot", "source": "/webhook/instagram, instagram.py", "outcome": "preserve provider (Meta Instagram API)", "status": "pending", "next_action": "stage 3; needs Meta credentials"},
-    {"capability": "scheduled reminders", "source": "background loop in main.py", "outcome": "migrate to cron", "status": "pending", "next_action": "stage 2/3"},
-    {"capability": "records / users", "source": "SQLite", "outcome": "none: not launched", "status": "accepted", "next_action": "none"},
-    {"capability": "brand assets, social, stickers, copy", "source": "logo/, social/, stickers/, copy/", "outcome": "not app code; stay in user's kit", "status": "accepted", "next_action": "none"}
+    {
+      "capability": "website pages (home, whatsapp, instagram, app, privacy, terms)",
+      "source": "website/*.html + assets/site.css + site.js",
+      "outcome": "migrate",
+      "status": "verified",
+      "next_action": "replace placeholder WhatsApp number, Instagram handle and company details before launch"
+    },
+    {
+      "capability": "design tour prototype",
+      "source": "website/try/index.html (= app-prototype)",
+      "outcome": "migrate as static file",
+      "status": "verified",
+      "next_action": "none"
+    },
+    {
+      "capability": "waitlist form",
+      "source": "POST /api/waitlist (FastAPI + SQLite)",
+      "outcome": "migrate to Lovable Cloud",
+      "status": "verified",
+      "next_action": "none"
+    },
+    {
+      "capability": "admin stats page",
+      "source": "/admin?key=",
+      "outcome": "migrate",
+      "status": "pending",
+      "next_action": "stage 2"
+    },
+    {
+      "capability": "real web app (friends, chats, plans, watch parties, games, reminders, saves, lists, charts, passport)",
+      "source": "backend/webapp + api.py + realtime.py + games.py + db.py",
+      "outcome": "migrate to Lovable Cloud",
+      "status": "pending",
+      "next_action": "stage 2"
+    },
+    {
+      "capability": "auth (sign in with WhatsApp code)",
+      "source": "auth.py",
+      "outcome": "replace with Lovable auth",
+      "status": "pending",
+      "next_action": "stage 2"
+    },
+    {
+      "capability": "push notifications (Web Push)",
+      "source": "realtime.py / VAPID",
+      "outcome": "migrate",
+      "status": "pending",
+      "next_action": "stage 2"
+    },
+    {
+      "capability": "AI brain (Claude)",
+      "source": "brain.py",
+      "outcome": "decide in stage 2",
+      "status": "pending",
+      "next_action": "stage 2"
+    },
+    {
+      "capability": "WhatsApp webhook bot",
+      "source": "/webhook, handlers.py, whatsapp.py",
+      "outcome": "preserve provider (Meta WhatsApp Cloud API)",
+      "status": "pending",
+      "next_action": "stage 3; needs Meta credentials"
+    },
+    {
+      "capability": "Instagram webhook bot",
+      "source": "/webhook/instagram, instagram.py",
+      "outcome": "preserve provider (Meta Instagram API)",
+      "status": "pending",
+      "next_action": "stage 3; needs Meta credentials"
+    },
+    {
+      "capability": "scheduled reminders",
+      "source": "background loop in main.py",
+      "outcome": "migrate to cron",
+      "status": "pending",
+      "next_action": "stage 2/3"
+    },
+    {
+      "capability": "records / users",
+      "source": "SQLite",
+      "outcome": "none: not launched",
+      "status": "accepted",
+      "next_action": "none"
+    },
+    {
+      "capability": "brand assets, social, stickers, copy",
+      "source": "logo/, social/, stickers/, copy/",
+      "outcome": "not app code; stay in user's kit",
+      "status": "accepted",
+      "next_action": "none"
+    }
   ]
 }
