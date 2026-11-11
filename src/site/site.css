@@ -324,3 +324,9 @@ code{font-family:var(--mono);background:rgba(0,0,0,.12);padding:2px 7px;border-r
 .next b{display:block;font-size:17px;margin-bottom:6px}
 .next span{color:#A9B1B7;font-size:14.5px;line-height:1.5}
 @media (max-width:900px){.next{grid-template-columns:1fr}}
+/* plans in the price section */
+.payer .pr{margin-left:auto;font-family:var(--mono);font-size:18px;white-space:nowrap;text-align:right;color:var(--cream)}
+.payer .pr small{display:block;font-size:11px;color:var(--mute)}
+.payer .pr span{color:inherit;font-size:inherit}
+.payer .soon{font-style:normal;font-family:var(--mono);font-size:10px;letter-spacing:.1em;background:#111;color:#fff;padding:2px 6px;border-radius:3px;margin-left:6px;vertical-align:2px}
+.payers-k{font-family:var(--serif);font-weight:400;font-size:28px;margin-top:18px}
