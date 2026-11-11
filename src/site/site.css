@@ -9,6 +9,7 @@
 :where(.site-root) :where(a){color:revert;text-decoration:revert}
 :where(.site-root) :where(summary){display:revert}
 :where(.site-root) :where(table){border-collapse:revert;text-indent:revert}
+:where(.site-root) *, :where(.site-root) *::before, :where(.site-root) *::after{box-sizing:revert}
 
 
 /* Layout: one long dark sticker-zine scroll. Each section is a "spread": a big serif headline, then die-cut stickers, tickets, stamps and real app screens laid on black. Committed single dark theme. */

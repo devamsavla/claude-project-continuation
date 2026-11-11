@@ -9,6 +9,7 @@
 :where(.site-root) :where(a){color:revert;text-decoration:revert}
 :where(.site-root) :where(summary){display:revert}
 :where(.site-root) :where(table){border-collapse:revert;text-indent:revert}
+:where(.site-root) *, :where(.site-root) *::before, :where(.site-root) *::after{box-sizing:revert}
 
 :root{--ink:#0E1B17;--mute:#4E6159;--green:#25D366;--deep:#08382F;--paper:#FBFDFB;--line:#D5E3DB;color-scheme:light}
 body{margin:0;background:var(--paper);color:var(--ink);font:17px/1.65 Figtree,system-ui,sans-serif}
