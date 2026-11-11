@@ -17,3 +17,4 @@
   - [ ] Pointer inside Mindy: friendly animated pointer shows where to tap in Mindy itself
   - [ ] Medications: big spoken reminders + "I took it"; tell family if a dose is missed; photo of the box reads name/dose aloud and sets reminders (no medical advice)
 - [ ] Launch-ready: more features (user to list priorities) and must hold up under a launch spike (load, rate limits, error handling, monitoring)
+- [ ] Make it a business: how Mindy earns money (pricing, payments), growth loops, admin/analytics. Waiting on user's choices
