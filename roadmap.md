@@ -20,4 +20,8 @@
 - [ ] Make it a business (proposal sent, waiting on user's go-ahead): free core for everyone; Mindy Care family plan paid by family, with gifting; partner places pay per verified passport visit; one-off extras; global with fair local prices and multiple languages
 - [ ] Next features (user picked all + "a lot more"): photos + Afterglow albums, Family Care dashboard, voice notes, WhatsApp groups; proposed extras: scam checker, SOS to family, letters/bills photo to reminders, remind-a-friend, Group Wrapped, chat translation, app in many languages
 
-- [ ] Raise prices and add more income streams (proposal sent, awaiting user pick)
+- [x] Raise prices and show Free / Plus / Care plans and business income on the site
+- [ ] Build Plus value (unlimited WhatsApp reminders, voice notes, bill photos, group reminders) before charging
+- [ ] Switch on payments for Plus, Care and extras after launch
+- [ ] Business streams: pharmacy refills, Mindy for businesses, care homes, bills/tickets
+- [ ] Shop: photo books, merch, sticker packs
