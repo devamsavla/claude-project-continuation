@@ -11,4 +11,9 @@
   - [ ] 2g Admin numbers page, export and delete my data; point "Open the app" (src/site/config.ts) at /mindy
 - [ ] Stage 3: Mindy on WhatsApp and Instagram (needs Meta app credentials from the user)
 - [ ] Before launch: real WhatsApp number, Instagram handle (src/site/config.ts) and company details in privacy/terms
-- [ ] New ask: "Mindy for older people": very simple helper for people who find phones hard; help with everything incl. medications; pointing-cursor guidance like Clicky on Mac, but on phone. Scope to confirm with user.
+- [ ] Simple mode in Mindy (for older people; decided): big-button voice-first switch in the same app/account
+  - [ ] Screenshot help: send a screenshot + ask out loud, Mindy circles where to tap and reads steps aloud one by one
+  - [ ] Ask family: one tap sends screenshot + question to a family member, who draws on it and sends it back
+  - [ ] Pointer inside Mindy: friendly animated pointer shows where to tap in Mindy itself
+  - [ ] Medications: big spoken reminders + "I took it"; tell family if a dose is missed; photo of the box reads name/dose aloud and sets reminders (no medical advice)
+- [ ] Launch-ready: more features (user to list priorities) and must hold up under a launch spike (load, rate limits, error handling, monitoring)
