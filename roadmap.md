@@ -17,4 +17,5 @@
   - [ ] Pointer inside Mindy: friendly animated pointer shows where to tap in Mindy itself
   - [ ] Medications: big spoken reminders + "I took it"; tell family if a dose is missed; photo of the box reads name/dose aloud and sets reminders (no medical advice)
 - [ ] Launch-ready: more features (user to list priorities) and must hold up under a launch spike (load, rate limits, error handling, monitoring)
-- [ ] Make it a business: how Mindy earns money (pricing, payments), growth loops, admin/analytics. Waiting on user's choices
+- [ ] Make it a business (proposal sent, waiting on user's go-ahead): free core for everyone; Mindy Care family plan paid by family, with gifting; partner places pay per verified passport visit; one-off extras; global with fair local prices and multiple languages
+- [ ] Next features (user picked all + "a lot more"): photos + Afterglow albums, Family Care dashboard, voice notes, WhatsApp groups; proposed extras: scam checker, SOS to family, letters/bills photo to reminders, remind-a-friend, Group Wrapped, chat translation, app in many languages
