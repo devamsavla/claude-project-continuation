@@ -3,6 +3,7 @@
 // initSite() runs after each page renders; every listener binds to elements of that page only.
 import { supabase } from "@/integrations/supabase/client";
 import { SITE } from "./config";
+import { EXTRAS, PLANS } from "./prices";
 
 const WA_NUMBER = SITE.waNumber;
 const IG_HANDLE = SITE.igHandle;
@@ -142,10 +143,12 @@ if ($("#lock")) drawLock("cheeky");
 
 if ($("#cur")) {
 /* extras with local currency */
-const EXTRAS = [["Afterglow Forever: keep one album in full quality",{INR:"₹49",USD:"$0.99",GBP:"£0.79",EUR:"€0.89",AED:"AED 3.69",BRL:"R$4.90"}],["Holo sleeve for your rarest card",{INR:"₹29",USD:"$0.49",GBP:"£0.39",EUR:"€0.45",AED:"AED 1.79",BRL:"R$2.50"}],["League pass: auction night for 10 friends",{INR:"₹99 / season",USD:"$1.99",GBP:"£1.49",EUR:"€1.79",AED:"AED 6.99",BRL:"R$9.90"}],["Print your Group Wrapped as a zine",{INR:"₹399",USD:"$12",GBP:"£9",EUR:"€10",AED:"AED 44",BRL:"R$59"}],["Everything else in the app",{INR:"free",USD:"free",GBP:"free",EUR:"free",AED:"free",BRL:"free"}]];
 const cur = $("#cur");
 const guess = (navigator.language||"").toLowerCase(); cur.value = /-in$|hi/.test(guess) ? "INR" : /-gb$/.test(guess) ? "GBP" : /-ae$|^ar/.test(guess) ? "AED" : /^pt-br/.test(guess) ? "BRL" : /^(de|fr|es|it|nl|pt)/.test(guess) ? "EUR" : /-us$/.test(guess) ? "USD" : "INR";
-const drawExtras = () => $("#extras").innerHTML = EXTRAS.map(([n,p]) => `<div class="row"><span>${n}</span><b>${p[cur.value]}</b></div>`).join("");
+const drawExtras = () => {
+  $("#extras").innerHTML = EXTRAS.map(([n,p]) => `<div class="row"><span>${n}</span><b>${p[cur.value]}</b></div>`).join("");
+  document.querySelectorAll("[data-plan]").forEach(el => { el.textContent = PLANS[el.dataset.plan][cur.value]; });
+};
 cur.addEventListener("change", drawExtras); drawExtras();
 
 }
