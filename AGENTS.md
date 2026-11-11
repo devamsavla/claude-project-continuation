@@ -28,3 +28,11 @@ use the editor.
   own key and store it in Secrets.
 - **Secrets.** Lovable manages them. Do not put secret values in the repo.
 <!-- LOVABLE:END -->
+
+## Project rules
+
+- The marketing site (/, /whatsapp, /instagram, /app, /privacy, /terms) renders the original whatsonyourmind.online markup from `src/site/pages/*` through `SitePage`, with its own stylesheet per route and behaviour in `src/site/site-init.ts`. Why: keeps the hand-built site pixel-identical to the source; edit copy in those markup files, not in Tailwind components.
+- Site stylesheets start with a zero-specificity `revert` block for `.site-root`. Why: the app's global base reset would otherwise change the site's spacing, lists and widths.
+- The design tour is a self-contained static file at `public/try/index.html`; link to `/try/index.html`. Why: it is a single-file prototype with demo data and needs no app code.
+- Waitlist sign-ups go through the `join_waitlist` database function; the `waitlist` table has no client policies. Why: visitors can join and see their position without being able to read other emails.
+- Site settings (WhatsApp number, Instagram handle, where "Open the app" points) live in `src/site/config.ts`. Why: one place to change at launch.

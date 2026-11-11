@@ -1,0 +1,20 @@
+/* The original site ran without the app's base reset. These zero-specificity rules hand the
+   site's markup back the browser defaults it was designed against; every rule below wins over them. */
+:where(.site-root) :where(ul,ol,menu){list-style:revert;margin:revert;padding:revert}
+:where(.site-root) :where(p,h1,h2,h3,h4,h5,h6,blockquote,figure,dl,dd,hr,pre,form,fieldset){margin:revert}
+:where(.site-root) :where(h1,h2,h3,h4,h5,h6){font-size:revert;font-weight:revert}
+:where(.site-root) :where(fieldset,legend,button,input,select,textarea,th,td,summary){padding:revert}
+:where(.site-root) :where(button,input,select,textarea){font:revert;color:revert;background-color:revert;border:revert;border-radius:revert}
+:where(.site-root) :where(img,svg,video,canvas,audio,iframe,embed,object){display:revert;vertical-align:revert}
+:where(.site-root) :where(a){color:revert;text-decoration:revert}
+:where(.site-root) :where(summary){display:revert}
+:where(.site-root) :where(table){border-collapse:revert;text-indent:revert}
+:where(.site-root) *, :where(.site-root) *::before, :where(.site-root) *::after{box-sizing:revert}
+
+:root{--ink:#0E1B17;--mute:#4E6159;--green:#25D366;--deep:#08382F;--paper:#FBFDFB;--line:#D5E3DB;color-scheme:light}
+body{margin:0;background:var(--paper);color:var(--ink);font:17px/1.65 Figtree,system-ui,sans-serif}
+main{max-width:720px;margin:0 auto;padding:48px max(20px,env(safe-area-inset-left,0px)) 80px}
+a{color:var(--deep)} h1{font:800 clamp(40px,7vw,64px)/1 'Bricolage Grotesque',system-ui,sans-serif;letter-spacing:-.04em;margin:28px 0 8px}
+h2{font:800 24px/1.2 'Bricolage Grotesque',system-ui,sans-serif;letter-spacing:-.02em;margin:40px 0 8px} p,li{color:#26362F} .meta{color:var(--mute)}
+.home{font:800 22px 'Bricolage Grotesque',system-ui,sans-serif;letter-spacing:-.04em;text-decoration:none;color:var(--ink)} .home b{color:var(--green)}
+.todo{background:#FFF4CC;padding:1px 6px;border-radius:4px}
