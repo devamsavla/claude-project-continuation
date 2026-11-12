@@ -31,6 +31,8 @@ use the editor.
 
 ## Project rules
 
+- Read `docs/PROGRESS.md` first and update it (plus `roadmap.md`) at the end of every working session. Why: it is the hand-off record other contributors and AI models build on.
+- `legacy/claude-launch-kit/` is read-only reference for porting and is excluded from build, lint and tests. Why: it is the original Python/vanilla-JS build, kept only as a behaviour spec.
 - The marketing site (/, /whatsapp, /instagram, /app, /privacy, /terms) renders the original whatsonyourmind.online markup from `src/site/pages/*` through `SitePage`, with its own stylesheet per route and behaviour in `src/site/site-init.ts`. Why: keeps the hand-built site pixel-identical to the source; edit copy in those markup files, not in Tailwind components.
 - Site stylesheets start with a zero-specificity `revert` block for `.site-root`. Why: the app's global base reset would otherwise change the site's spacing, lists and widths.
 - The design tour is a self-contained static file at `public/try/index.html`; link to `/try/index.html`. Why: it is a single-file prototype with demo data and needs no app code.

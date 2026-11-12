@@ -83,13 +83,15 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { title: "whatsonyourmind" },
       {
         name: "description",
-        content: "Mindy remembers for you: save anything on WhatsApp, get reminders, and plan with friends in the free Mindy app.",
+        content:
+          "Mindy remembers for you: save anything on WhatsApp, get reminders, and plan with friends in the free Mindy app.",
       },
       { name: "author", content: "whatsonyourmind" },
       { property: "og:title", content: "whatsonyourmind" },
       {
         property: "og:description",
-        content: "Mindy remembers for you: save anything on WhatsApp, get reminders, and plan with friends in the free Mindy app.",
+        content:
+          "Mindy remembers for you: save anything on WhatsApp, get reminders, and plan with friends in the free Mindy app.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
