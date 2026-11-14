@@ -6,6 +6,8 @@ for k in ("WA_TOKEN", "WA_PHONE_NUMBER_ID", "WA_APP_SECRET", "ANTHROPIC_API_KEY"
           "GOOGLE_CLIENT_ID", "SAFE_BROWSING_KEY"):
     os.environ.pop(k, None)
 
+os.environ["ASK_QUESTIONS"] = "0"  # Mindy's tail questions are tested on their own in test_mind.py
+
 import pytest
 
 

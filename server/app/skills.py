@@ -185,6 +185,18 @@ def store_media(data: bytes, ext: str, keep: bool = False) -> str:
     return f"{settings.app_url.rstrip('/')}/media/{name}"
 
 
+def read_media(url: str) -> bytes | None:
+    """Reads back a file stored with store_media (by its public URL)."""
+    name = url.rsplit("/media/", 1)[-1]
+    if not re.match(r"^[\w\-.]+$", name):
+        return None
+    try:
+        with open(os.path.join(MEDIA_DIR, name), "rb") as f:
+            return f.read()
+    except OSError:
+        return None
+
+
 # ---------------------------------------------------------------- file tools
 TOOL_WORDS = {"mp3": r"\b(mp3|audio only|extract audio|to audio|song)\b", "compress": r"\b(compress|smaller|reduce|shrink|size kam)\b"}
 

@@ -76,6 +76,9 @@ class Telegram:
     async def typing(self, to):
         return await self._call("sendChatAction", {"chat_id": self._chat(to), "action": "typing"})
 
+    async def audio(self, to, link):
+        return await self._call("sendAudio", {"chat_id": self._chat(to), "audio": link})
+
     async def image(self, to, link, caption=""):
         return await self._call("sendPhoto", {"chat_id": self._chat(to), "photo": link, "caption": _plain(caption)[:1024]})
 

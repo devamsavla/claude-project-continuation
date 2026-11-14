@@ -24,7 +24,8 @@ from .config import settings
 from .db import DB
 from .handlers import Mindy, care_check, occasion_nudges, send_due, weekly_summary
 from .instagram import normalise as ig_normalise
-from . import llm, skills
+from . import jobs, llm, more, skills
+from .routes_more import make_more_router
 from .telegram import normalise as tg_normalise, tg
 from .whatsapp import verify_signature, wa
 
@@ -32,6 +33,9 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname
 log = logging.getLogger("mindy")
 
 db = DB(settings.database_path)
+more.init(db)
+from .handlers import CLIENTS as _CLIENTS
+_CLIENTS["sms"] = more.SmsClient(db)
 mindy = Mindy(db)
 scheduler: AsyncIOScheduler | None = None
 
@@ -45,6 +49,7 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(clean_media, "interval", hours=1, id="media")
     scheduler.add_job(occasion_nudges, "cron", hour=9, minute=0, args=[db], id="occasions")
     scheduler.add_job(weekly_summary, "cron", day_of_week="sun", hour=18, minute=0, args=[db], id="weekly")
+    jobs.add_jobs(scheduler, db)
     import asyncio as _a
     realtime.hub.loop = _a.get_running_loop()
     scheduler.start()
@@ -58,6 +63,7 @@ app.add_middleware(CORSMiddleware, allow_origins=settings.allowed_origins, allow
 
 
 app.include_router(make_router(db, wa, mindy))
+app.include_router(make_more_router(db, mindy))
 
 
 @app.websocket("/ws")

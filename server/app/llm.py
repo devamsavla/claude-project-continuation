@@ -107,3 +107,63 @@ def transcribe(audio: bytes, fmt: str = "mp3", who: str | None = None) -> str | 
         STATS["failed"] += 1
         log.warning("transcribe failed: %s", e)
         return None
+
+
+# ---------------------------------------------------------------- voice replies and try-on
+TTS_LANG = {"en": "en-GB", "hi": "hi-IN", "hinglish": "hi-IN", "gu": "gu-IN", "mr": "mr-IN", "ta": "ta-IN", "te": "te-IN", "bn": "bn-IN",
+            "kn": "kn-IN", "ml": "ml-IN", "pa": "pa-IN", "ur": "ur-IN", "es": "es-ES", "pt": "pt-BR", "fr": "fr-FR", "de": "de-DE",
+            "ar": "ar-XA", "sw": "sw-KE", "id": "id-ID", "tl": "fil-PH", "it": "it-IT", "tr": "tr-TR", "ru": "ru-RU", "zh": "cmn-CN",
+            "ja": "ja-JP", "ko": "ko-KR", "pl": "pl-PL", "nl": "nl-NL", "yo": "yo-NG", "ha": "ha-NG"}
+
+
+def tts(text: str, lang: str = "en") -> bytes | None:
+    """Text -> MP3. Google Cloud Text-to-Speech (generous free tier) if TTS_API_KEY is set, else espeak-ng offline, else None."""
+    if not text.strip():
+        return None
+    key = settings.tts_key
+    if key:
+        try:
+            r = httpx.post("https://texttospeech.googleapis.com/v1/text:synthesize", params={"key": key}, timeout=20,
+                           json={"input": {"text": text[:1500]}, "voice": {"languageCode": TTS_LANG.get(lang, "en-GB")},
+                                 "audioConfig": {"audioEncoding": "MP3"}})
+            r.raise_for_status()
+            return base64.b64decode(r.json()["audioContent"])
+        except Exception as e:
+            log.warning("tts failed: %s", e)
+    import shutil
+    import subprocess
+    import tempfile
+    if shutil.which("espeak-ng") and shutil.which("ffmpeg"):
+        with tempfile.TemporaryDirectory() as d:
+            wav, mp3 = f"{d}/o.wav", f"{d}/o.mp3"
+            v = {"hinglish": "hi"}.get(lang, lang)
+            if subprocess.run(["espeak-ng", "-v", v, "-s", "150", "-w", wav, text[:1500]], capture_output=True).returncode != 0:
+                subprocess.run(["espeak-ng", "-w", wav, text[:1500]], capture_output=True)
+            if subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", wav, "-b:a", "64k", mp3], capture_output=True).returncode == 0:
+                with open(mp3, "rb") as f:
+                    return f.read()
+    return None
+
+
+def try_on(person: bytes, clothing: bytes, mime: str = "image/jpeg", who: str | None = None) -> bytes | None:
+    """Virtual try-on with Gemini's image model (about $0.04 an image, so callers cap it per day)."""
+    key = settings.gemini_key or (settings.llm_key if "googleapis" in settings.llm_base_url else "")
+    if not key or _over_budget(who):
+        return None
+    parts = [{"text": "Photo 1 is a person. Photo 2 is a clothing item. Create a realistic photo of the same person (same face, body, skin tone and pose) "
+                      "wearing this clothing item, in a clean, well-lit setting. Keep it tasteful and natural. Output only the image."},
+             {"inline_data": {"mime_type": "image/jpeg", "data": base64.b64encode(person).decode()}},
+             {"inline_data": {"mime_type": mime, "data": base64.b64encode(clothing).decode()}}]
+    try:
+        r = httpx.post(f"https://generativelanguage.googleapis.com/v1beta/models/{settings.tryon_model}:generateContent",
+                       params={"key": key}, json={"contents": [{"parts": parts}]}, timeout=90)
+        r.raise_for_status()
+        STATS["calls"] += 1
+        for p in r.json()["candidates"][0]["content"]["parts"]:
+            d = p.get("inline_data") or p.get("inlineData")
+            if d and d.get("data"):
+                return base64.b64decode(d["data"])
+    except Exception as e:
+        STATS["failed"] += 1
+        log.warning("try-on failed: %s", e)
+    return None

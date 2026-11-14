@@ -91,6 +91,9 @@ class WhatsApp:
         return await self._post({"to": to, "type": "interactive", "interactive": {"type": "cta_url", "body": {"text": body[:1024]},
                                  "action": {"name": "cta_url", "parameters": {"display_text": label[:20], "url": url}}}})
 
+    async def audio(self, to: str, link: str):
+        return await self._post({"to": to, "type": "audio", "audio": {"link": link}})
+
     async def image(self, to: str, link: str, caption: str = ""):
         return await self._post({"to": to, "type": "image", "image": {"link": link, "caption": caption[:1024]}})
 

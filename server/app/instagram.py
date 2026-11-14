@@ -79,6 +79,9 @@ class Instagram:
     async def link_button(self, to, body, label, url):
         return await self.text(to, f"{body}\n{label}: {url}")
 
+    async def audio(self, to, link):
+        return {"ok": False}
+
     async def image(self, to, link, caption=""):
         return await self.text(to, f"{caption}\n{link}".strip())
 

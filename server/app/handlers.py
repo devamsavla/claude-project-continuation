@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo, available_timezones
 
 import re
 
-from . import brain, care, hooks, llm, places, skills
+from . import brain, care, hooks, llm, more, places, skills
 from .config import settings
 from .db import DB
 from .instagram import ig
@@ -47,7 +47,8 @@ HELP = ("Here's what I can do:\n• *Save*: forward or send anything\n• *Find*
         "• *Remind*: _remind me to pay rent on the 1st every month_\n• *Lists*: _add bread to shopping list_, _show shopping list_\n"
         "• *Occasions*: _Leo's birthday is 3 June_\n• *Photos*: send a ticket or invitation and I'll set the reminder\n"
         "• *Link*: send _link_ to join up WhatsApp, Instagram and the app\n• _export my data_ or _delete my data_ at any time")
-CHANNEL_NAME = {"wa": "WhatsApp", "ig": "Instagram", "tg": "Telegram"}
+CHANNEL_NAME = {"wa": "WhatsApp", "ig": "Instagram", "tg": "Telegram", "sms": "SMS"}
+WELCOME["sms"] = more.SMS_WELCOME
 WELCOME["tg"] = ("Hi{name}! I'm Mindy 🧠 your tech friend.\n\nSend me anything to remember, forward posts from channels, ask me anything, "
                  "send a video with “mp3” or “compress”, forward a suspicious message to check it, or type “Ramesh owes me 500”.\n\n"
                  "Reminders here are free and arrive any time. Your timezone is {tz} (reply “timezone Asia/Kolkata” to change).")
@@ -63,6 +64,9 @@ def fmt_local(dt_utc_iso: str, tz: str) -> str:
 
 # the conversation in progress: (client, the sender's id on that channel)
 _CONV: ContextVar[tuple] = ContextVar("conv", default=(wa, ""))
+_USER: ContextVar[dict | None] = ContextVar("user", default=None)
+_VOICE: ContextVar[bool] = ContextVar("voice", default=False)
+CMD_RX = re.compile(r"^(remind|add |check|scam|show|my |what|where|how|help|khata|link|login|timezone|language|call yourself|split|gift|wishlist|staff|customer|bill )", re.I)
 
 
 class Mindy:
@@ -70,20 +74,57 @@ class Mindy:
         self.db = db
 
     # -- reply helpers: always answer on the channel the message came from
+    async def _out(self, text: str) -> str:
+        """Every reply passes through here: the person's own name for Mindy, their language, and a voice copy if they want one."""
+        u = _USER.get()
+        if not u:
+            return text
+        text = more.rename_out(text, u)
+        if u.get("lang") and u["lang"] != "en":
+            text = await asyncio.to_thread(more.translate, text, u["lang"], str(u["id"]))
+        if _VOICE.get() and u.get("voice"):
+            try:
+                audio = await asyncio.to_thread(llm.tts, re.sub(r"[*_~]|https?://\S+", "", text)[:900], u.get("lang") or "en")
+                client, to = _CONV.get()
+                if audio and hasattr(client, "audio"):
+                    await client.audio(to, skills.store_media(audio, "mp3"))
+            except Exception:
+                log.exception("voice reply failed")
+        return text
+
     async def say(self, text: str, **kw):
         client, to = _CONV.get()
-        return await client.text(to, text, **kw)
+        return await client.text(to, await self._out(text), **kw)
 
     async def ask(self, text: str, buttons):
         client, to = _CONV.get()
-        return await client.buttons(to, text, buttons)
+        return await client.buttons(to, await self._out(text), buttons)
 
     async def links(self, text: str, links):
         client, to = _CONV.get()
         if not links:
             return await self.say(text)
         extra = "".join(f"\n{l}: {u}" for l, u in links[1:])
-        return await client.link_button(to, text + extra, links[0][0], links[0][1])
+        return await client.link_button(to, await self._out(text) + extra, links[0][0], links[0][1])
+
+    async def more_reply(self, r: dict):
+        """Sends a reply from the skills module: notifications to others, an app deep link, buttons or links."""
+        user = _USER.get()
+        for uid, body, btns in r.get("notify") or []:
+            try:
+                await deliver(self.db, uid, body, btns, settings.reminder_template, [body.replace("*", "")[:900]], title="Mindy")
+            except Exception:
+                log.exception("notify failed")
+        text, links = r["text"], list(r.get("links") or [])
+        if r.get("app") and user:
+            links.append((r["app"][0], more.magic_link(self.db, user["id"], r["app"][1])))
+        if r.get("buttons"):
+            if links:
+                text += "".join(f"\n{l}: {u}" for l, u in links)
+            return await self.ask(text, r["buttons"])
+        if links:
+            return await self.links(text, links)
+        return await self.say(text)
 
     async def react(self, mid: str, emoji: str):
         client, to = _CONV.get()
@@ -97,6 +138,14 @@ class Mindy:
         client = CLIENTS[channel]
         _CONV.set((client, ext))
         user = self.db.user(ext, contact_name, tz_for(ext), channel)
+        _USER.set(user)
+        _VOICE.set(False)
+        if channel == "sms" and mtype == "text":
+            menu = self.db.one("SELECT v FROM kv WHERE k=?", (f"sms_menu:{ext}",))
+            b = msg["text"]["body"].strip()
+            if menu and b.isdigit() and 0 < int(b) <= len(menu["v"].split("|")):
+                msg = {**msg, "type": "interactive", "interactive": {"button_reply": {"id": menu["v"].split("|")[int(b) - 1]}}}
+                mtype = "interactive"
         self.db.touch_inbound(user["id"], ext)
         await client.read_and_typing(mid)
         if channel == "tg":
@@ -117,11 +166,26 @@ class Mindy:
                 await self.on_location(user, msg["location"])
             elif mtype == "text":
                 await self.on_text(user, body, mid, msg.get("share"))
+                await self.maybe_ask(user)
             else:
                 await self.say("I can't open that type of message yet, but text, links, photos and documents all work.")
         except Exception:
             log.exception("handler failed")
             await self.say("Sorry, something went wrong on my side. Try that again in a moment?")
+
+    async def maybe_ask(self, user):
+        """Mindy asks: one tap question at the end of a conversation the person started (free on every channel)."""
+        try:
+            if not settings.ask_questions or user.get("_new") or self.db.one("SELECT 1 FROM kv WHERE k LIKE ? LIMIT 1", (f"await_%:{user['id']}",)):
+                return
+            last = (self.db.one("SELECT body FROM messages WHERE user_id=? AND direction='in' ORDER BY id DESC LIMIT 1", (user["id"],)) or {}).get("body") or ""
+            if re.match(r"^(login|log in|link|code|app|help|timezone|export|delete|report|stop|human)\b", last.lower().strip()):
+                return
+            tq = more.tail_question(self.db, user)
+            if tq:
+                await (self.ask(tq[0], tq[1]) if tq[1] else self.say(tq[0]))
+        except Exception:
+            log.exception("tail question failed")
 
     @staticmethod
     def _text_of(msg: dict) -> str:
@@ -167,6 +231,16 @@ class Mindy:
                 return await self.say("✅ Noted. Thank you! Your family can see you're on track.")
             if low != "done":
                 return await self.say("👍")
+        # ---- Mindy asked something and this is the typed answer
+        if CMD_RX.match(low) or brain.URL_RE.search(text):
+            self.db.x("DELETE FROM kv WHERE k=?", (f"await_q:{user['id']}",))
+        fa = more.free_answer(self.db, user, text)
+        if fa:
+            return await self.more_reply(fa)
+        # ---- everyday skills (gifts, staff, vault, safety, code word, wardrobe, languages, trips...): rules first, isolated
+        mr = await asyncio.to_thread(more.handle, self.db, user, text, self.button_key(user))
+        if mr:
+            return await self.more_reply(mr)
         # ---- places: parking, home, "where's my car"
         pa = places.ask(text)
         if pa:
@@ -328,6 +402,9 @@ class Mindy:
     # ------------------------------------------------------------ buttons
     async def on_button(self, user, msg):
         bid = self._text_of(msg)
+        mb = await asyncio.to_thread(more.on_button, self.db, user, bid)
+        if mb:
+            return await self.more_reply(mb)
         if bid == "help":
             return await self.say(HELP)
         if bid == "upcoming":
@@ -425,6 +502,57 @@ class Mindy:
                                                         "text": row["text"], "log": row["id"]})
 
     # ------------------------------------------------------------ media
+    async def style_media(self, user, t, ref, caption):
+        """Photos with a purpose: wardrobe items, 'this is me' for try-on, try-on itself, and receipts to split."""
+        low = caption.lower()
+        if t != "image" or not low:
+            return None
+        client, to = _CONV.get()
+        if re.search(r"\b(wardrobe|closet|my clothes|almirah)\b", low):
+            data, mime = await client.download_media(ref)
+            desc = await asyncio.to_thread(llm.chat, "Describe this clothing item in under 8 words: colour, type, style. Then ' | ' and when to wear it (2-4 words).",
+                                           image=data, mime=mime or "image/jpeg", who=str(user["id"]), max_tokens=40) if data else None
+            title = (desc or re.sub(r"(?i)\b(wardrobe|closet|my clothes|almirah)\b", "", caption).strip() or "Clothing item").strip()
+            url = skills.store_media(data, "jpg", keep=True) if data else None
+            iid = self.db.save_item(user["id"], "photo", f"{title} {url or ''}".strip(), url=url, collection="Wardrobe")
+            self.db.x("UPDATE items SET title=? WHERE id=?", (title.split("|")[0].strip()[:80], iid))
+            n = self.db.one("SELECT COUNT(*) n FROM items WHERE user_id=? AND collection='Wardrobe'", (user["id"],))["n"]
+            return await self.more_reply(more.R(f"👗 Added to your wardrobe: *{title.split('|')[0].strip()}* ({n} pieces). Ask _what should I wear to…?_ any time.",
+                                                app=("See your wardrobe", "brain")))
+        if re.match(r"^(this is me|me|my photo|for try ?on|my picture)\b", low):
+            data, _ = await client.download_media(ref)
+            if not data:
+                return await self.say("I couldn't open that photo. Try again?")
+            url = skills.store_media(data, "jpg", keep=True)
+            self.db.x("UPDATE users SET photo=? WHERE id=?", (url, user["id"]))
+            return await self.say("📸 Got you! Now send any clothing photo with *try on* and I'll show you wearing it. Say _delete my photo_ any time.")
+        if re.search(r"\b(try ?on|how (will|would) (this|it) look|will (this|it) suit me|on me)\b", low):
+            me = self.db.one("SELECT photo FROM users WHERE id=?", (user["id"],))
+            if not me or not me.get("photo"):
+                return await self.say("First send me one clear photo of yourself (standing, good light) with the caption *this is me*.")
+            if not llm.live():
+                return await self.say("👗 Try-on switches on once my image AI is connected.")
+            if not await asyncio.to_thread(more.tryon_allowed, self.db, user["id"]):
+                return await self.say(f"👗 That's your {settings.tryon_daily} free try-ons for today. More tomorrow, or unlimited on Mindy Plus.")
+            cloth, mime = await client.download_media(ref)
+            person = skills.read_media(me["photo"])
+            await self.say("👗 Dressing you up… give me 15 seconds.")
+            img = await asyncio.to_thread(llm.try_on, person, cloth, mime or "image/jpeg", str(user["id"])) if (person and cloth) else None
+            if not img:
+                return await self.say("I couldn't make that one. Try a clearer photo of the clothes on a plain background?")
+            return await client.image(to, skills.store_media(img, "png"), "👀 Here's you in it. Send another to compare!")
+        if re.search(r"\b(split|bill|receipt)\b", low) and re.search(r"\b(split|between|share)\b", low):
+            data, mime = await client.download_media(ref)
+            out = await asyncio.to_thread(llm.chat_json, "This is a receipt. Return JSON {total: number, currency: string}. Total = the final amount paid.",
+                                          image=data, mime=mime or "image/jpeg", who=str(user["id"]), max_tokens=80) if data and llm.live() else None
+            m = re.search(r"(?:between|with|among)\s+(.+)$", caption, re.I)
+            if out and out.get("total") and m:
+                r = await asyncio.to_thread(more.handle, self.db, user, f"split {out['total']} between {m.group(1)}")
+                if r:
+                    return await self.more_reply(r)
+            return await self.say("🧮 Tell me the total and who to split with, like _split 2400 between Asha, Ben and Kim_.")
+        return None
+
     async def on_media(self, user, msg):
         t = msg["type"]
         m = msg[t]
@@ -449,6 +577,9 @@ class Mindy:
             if ext == "jpg":
                 return await client.image(_CONV.get()[1], url, f"Here you go{saved} ✨")
             return await client.document(_CONV.get()[1], url, f"mindy.{ext}", f"Here you go{saved} ✨")
+        styled = await self.style_media(user, t, ref, caption)
+        if styled is not None:
+            return styled
         if t == "image" and re.search(r"\b(park|parked|parking|car|bike|pillar|level|gaadi)\b", caption.lower()):
             data, mime = await client.download_media(ref)
             url = skills.store_media(data, "jpg", keep=True) if data else None
@@ -499,7 +630,9 @@ class Mindy:
                 mp3 = await asyncio.to_thread(skills.convert, data, mime or "audio/ogg", "mp3")
                 heard = await asyncio.to_thread(llm.transcribe, mp3[0] if mp3 else data, "mp3", str(user["id"]))
             if heard:
-                await self.say(f"🎙️ I heard: _{heard}_")
+                if not user.get("voice"):
+                    await self.say(f"🎙️ I heard: _{heard}_")
+                _VOICE.set(True)
                 return await self.on_text(user, heard, msg.get("id"), None)
             self.db.save_item(user["id"], "voice", f"Voice note {datetime.now(ZoneInfo(tz)):%d %b %H:%M}", media_id=ref, collection="Voice notes")
             return await self.say("🎙️ Voice note saved. (I understand voice notes once the AI key is switched on.)")
@@ -546,7 +679,7 @@ async def deliver(db: DB, user_id: int, body: str, buttons, template: str, param
         elif tg_acc:
             await tg.buttons(tg_acc["ext"], body, buttons)  # Telegram is always free
             used.append("tg")
-        elif wa_acc:
+        elif wa_acc and template:
             await wa.template(wa_acc["ext"], template, params)  # paid template outside the window
             used.append("wa")
         elif ig_acc and _in_window(ig_acc["last_inbound_at"], now):
