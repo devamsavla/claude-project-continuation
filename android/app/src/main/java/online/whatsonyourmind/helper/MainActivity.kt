@@ -12,6 +12,7 @@ import android.provider.Settings
 import android.text.InputType
 import android.view.Gravity
 import android.view.ViewGroup
+import android.os.Build
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
@@ -120,8 +121,33 @@ class MainActivity : Activity() {
                 }
             }.start()
         })
+        col.addView(label("Caller ID", 15f, Color.GRAY))
+        col.addView(big("3. Turn on scam caller warnings", Color.rgb(255, 226, 154), Color.BLACK) {
+            if (Build.VERSION.SDK_INT >= 29) {
+                val rm = getSystemService(android.app.role.RoleManager::class.java)
+                if (rm.isRoleAvailable(android.app.role.RoleManager.ROLE_CALL_SCREENING) && !rm.isRoleHeld(android.app.role.RoleManager.ROLE_CALL_SCREENING))
+                    startActivityForResult(rm.createRequestRoleIntent(android.app.role.RoleManager.ROLE_CALL_SCREENING), 7)
+                else Toast.makeText(this, "Caller ID is on ✅", Toast.LENGTH_SHORT).show()
+                if (Build.VERSION.SDK_INT >= 33) requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 8)
+            } else Toast.makeText(this, "Needs Android 10 or newer", Toast.LENGTH_LONG).show()
+        })
+        val block = android.widget.CheckBox(this).apply { text = "Silence calls reported 5+ times"; setTextColor(Color.WHITE); isChecked = prefs.blockScams
+            setOnCheckedChangeListener { _, v -> prefs.blockScams = v } }
+        col.addView(block)
         col.addView(label("Advanced", 13f, Color.DKGRAY))
         col.addView(server)
+        val gw = field("Gateway secret (Mindy team phone only)", prefs.gatewaySecret, InputType.TYPE_CLASS_TEXT)
+        col.addView(gw)
+        col.addView(big("Gateway mode on / off", Color.DKGRAY, Color.WHITE) {
+            prefs.gatewaySecret = gw.text.toString().trim()
+            val i = Intent(this, GatewayService::class.java)
+            if (prefs.gatewaySecret.isEmpty()) { stopService(i); Toast.makeText(this, "Gateway off", Toast.LENGTH_SHORT).show() }
+            else {
+                requestPermissions(arrayOf(Manifest.permission.RECEIVE_SMS, Manifest.permission.SEND_SMS, Manifest.permission.READ_PHONE_STATE, Manifest.permission.READ_CALL_LOG), 9)
+                if (Build.VERSION.SDK_INT >= 26) startForegroundService(i) else startService(i)
+                Toast.makeText(this, "Gateway on", Toast.LENGTH_SHORT).show()
+            }
+        })
         col.addView(label("Mindy never reads or types your PIN, OTP or passwords, and never presses Pay for you. It only reads the button names on the screen you're on, while you're asking for help.", 13f, Color.GRAY))
 
         setContentView(ScrollView(this).apply { setBackgroundColor(Color.BLACK); addView(col) })

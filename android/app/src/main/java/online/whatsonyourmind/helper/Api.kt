@@ -34,6 +34,12 @@ class Prefs(ctx: Context) {
     var doIt: Boolean
         get() = p.getBoolean("doit", false)
         set(v) = p.edit().putBoolean("doit", v).apply()
+    var blockScams: Boolean
+        get() = p.getBoolean("block", false)
+        set(v) = p.edit().putBoolean("block", v).apply()
+    var gatewaySecret: String
+        get() = p.getString("gw", "") ?: ""
+        set(v) = p.edit().putString("gw", v).apply()
     var server: String
         get() = p.getString("server", BuildConfig.API_URL) ?: BuildConfig.API_URL
         set(v) = p.edit().putString("server", v.trimEnd('/')).apply()
