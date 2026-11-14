@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo, available_timezones
 
 import re
 
-from . import brain, care, hooks, llm, skills
+from . import brain, care, hooks, llm, places, skills
 from .config import settings
 from .db import DB
 from .instagram import ig
@@ -114,9 +114,7 @@ class Mindy:
             elif mtype in ("image", "document", "audio", "video", "sticker"):
                 await self.on_media(user, msg)
             elif mtype == "location":
-                loc = msg["location"]
-                self.db.save_item(user["id"], "place", f"{loc.get('name') or 'Pinned place'} {loc.get('address') or ''} ({loc['latitude']},{loc['longitude']})", collection="Places")
-                await self.say("📍 Saved to *Places*.")
+                await self.on_location(user, msg["location"])
             elif mtype == "text":
                 await self.on_text(user, body, mid, msg.get("share"))
             else:
@@ -169,6 +167,23 @@ class Mindy:
                 return await self.say("✅ Noted. Thank you! Your family can see you're on track.")
             if low != "done":
                 return await self.say("👍")
+        # ---- places: parking, home, "where's my car"
+        pa = places.ask(text)
+        if pa:
+            return await self.send_place(user, *pa)
+        if re.match(r"^(i )?(just )?(parked|park kiya|parked here|parking)\b|^save (this|my) (parking|car|home|office)|^(this is|it's) my (home|office|hotel)", low):
+            lab = places.label_of(low) or "car"
+            note = re.sub(r"^(i )?(just )?(parked|park kiya|parking)( (at|in|on))?\s*", "", text, flags=re.I).strip(" .")
+            if places.latest(self.db, user["id"], lab) and note and not re.match(r"^(here|now)$", note.lower()):
+                places.add_note(self.db, user["id"], lab, note)
+                return await self.say(f"📝 Added to your {lab} spot: *{note}*")
+            self.db.x("INSERT OR REPLACE INTO kv(k,v) VALUES(?,?)", (f"await_place:{user['id']}", lab))
+            return await self.say(f"Send me your location now: tap 📎 → *Location* → *Send your current location*." + (f"\nI'll add your note: {note}" if note and lab == "car" else ""))
+        if re.search(r"\b(button|buttons|shortcut|shortcuts|home screen)\b", low):
+            k = self.button_key(user)
+            base = settings.app_url.rstrip("/") + f"/b/{k}"
+            return await self.say("📲 Your Mindy buttons. Open one, then tap *Share → Add to Home Screen* (iPhone) or *⋮ → Add to Home screen* (Android):\n"
+                                  f"🚗 I parked here: {base}/park\n📍 Where's my car: {base}/car\n🏠 Take me home: {base}/home\n🆘 SOS to family: {base}/sos")
         # ---- tech friend skills (all specific tasks, fine on WhatsApp)
         if re.match(r"^(scam\??|is (this|it) (a )?(scam|fraud|real|safe)\??|check( this)?:?|fraud\??|safe\??)\b", low):
             rest = re.sub(r"^(scam\??|is (this|it) (a )?(scam|fraud|real|safe)\??|check( this)?:?|fraud\??|safe\??)\s*", "", text, flags=re.I)
@@ -330,6 +345,12 @@ class Mindy:
                 return await self.say("I couldn't find that save any more.")
             res = await asyncio.to_thread(hooks.do_action, self.db, user, item, action)
             return await self.say(res["reply"])
+        if bid.startswith("place:"):
+            _, pid, lab = bid.split(":", 2)
+            if lab == "spot":
+                return await self.say("📍 Saved. Ask me for it any time.")
+            places.set_label(self.db, user["id"], int(pid), lab)
+            return await self.say(places_saved_text(lab))
         if bid.startswith("took:"):
             row = care.took(self.db, user["id"], int(bid[5:]))
             if row:
@@ -359,6 +380,39 @@ class Mindy:
             return await self.say("Done. Everything is deleted. Say hi any time to start fresh.")
         if bid == "delete_no":
             return await self.say("Nothing deleted. 👍")
+
+    def button_key(self, user):
+        import secrets as _s
+        row = self.db.one("SELECT button_key FROM users WHERE id=?", (user["id"],))
+        if row and row.get("button_key"):
+            return row["button_key"]
+        k = _s.token_urlsafe(9)
+        self.db.x("UPDATE users SET button_key=? WHERE id=?", (k, user["id"]))
+        return k
+
+    async def on_location(self, user, loc):
+        pending = self.db.one("SELECT v FROM kv WHERE k=?", (f"await_place:{user['id']}",))
+        label = pending["v"] if pending else places.label_of(f"{loc.get('name') or ''} {loc.get('address') or ''}") if loc.get("name") else None
+        self.db.x("DELETE FROM kv WHERE k=?", (f"await_place:{user['id']}",))
+        pid = places.save(self.db, user["id"], float(loc["latitude"]), float(loc["longitude"]), label, name=loc.get("name") or loc.get("address") or "")
+        if label:
+            return await self.say(places_saved_text(label))
+        return await self.ask("📍 Got it. What is this place?", [(f"place:{pid}:car", "🚗 My car"), (f"place:{pid}:home", "🏠 Home"), (f"place:{pid}:spot", "📍 Just save")])
+
+    async def send_place(self, user, label, mode):
+        p = places.latest(self.db, user["id"], label)
+        if not p:
+            hint = "Send me your location (📎 → Location) when you park, and I'll remember it." if label == "car" else \
+                f"I don't have your {label} saved yet. Send me the location (📎 → Location) and say it's {label}."
+            return await self.say(hint)
+        client, to = _CONV.get()
+        await client.location(to, p["lat"], p["lng"], {"car": "Your car", "home": "Home"}.get(label, label.title()), p.get("note") or "")
+        if p.get("photo"):
+            await client.image(to, p["photo"], "The photo you took")
+        ago_txt = fmt_local(p["created_at"], user["tz"])
+        lk = places.links(p, mode)
+        note = f"\nYour note: *{p['note']}*" if p.get("note") else ""
+        return await self.links(f"{'🚗 Your car' if label == 'car' else '📍 ' + label.title()} (saved {ago_txt}).{note}\nTap to go there. *Street View* shows the spot in 3D.", lk[:2])
 
     async def scam_reply(self, user, text):
         chk = await asyncio.to_thread(skills.check_message, self.db, text, str(user["id"]))
@@ -395,6 +449,21 @@ class Mindy:
             if ext == "jpg":
                 return await client.image(_CONV.get()[1], url, f"Here you go{saved} ✨")
             return await client.document(_CONV.get()[1], url, f"mindy.{ext}", f"Here you go{saved} ✨")
+        if t == "image" and re.search(r"\b(park|parked|parking|car|bike|pillar|level|gaadi)\b", caption.lower()):
+            data, mime = await client.download_media(ref)
+            url = skills.store_media(data, "jpg", keep=True) if data else None
+            p = places.add_note(self.db, user["id"], "car", caption, url)
+            if p:
+                return await self.say("📸 Added this photo to your parking spot. Ask *where's my car?* later.")
+            self.db.x("INSERT OR REPLACE INTO kv(k,v) VALUES(?,?)", (f"await_place:{user['id']}", "car"))
+            return await self.say("📸 Got the photo. Now send your location (📎 → Location) so I know where it is.")
+        if t in ("image", "document") and re.search(r"\b(read|what does (this|it) say|explain|samjhao|batao|padh|kya likha|meaning|letter|bill|notice)\b", caption.lower()) and llm.live():
+            data, mime = await client.download_media(ref)
+            if data and (mime or "").startswith("image/"):
+                txt = await asyncio.to_thread(brain.read_for_me, data, mime, caption, str(user["id"]))
+                if txt:
+                    self.db.save_item(user["id"], "photo", f"{caption}: {txt[:300]}", media_id=ref, collection="Documents")
+                    return await self.say("📄 " + txt)
         if t == "image":
             data, mime = await client.download_media(ref)
             asks = re.search(r"\?|\b(where|how|what|help|tap|click|press|kaise|kahan|next|stuck|privacy|permission)\b", caption.lower()) or (user.get("simple") and not caption)
@@ -424,8 +493,16 @@ class Mindy:
             self.db.save_item(user["id"], "doc", f"{m.get('filename', 'Document')} {caption}".strip(), media_id=ref, collection="Documents")
             return await self.say(f"📄 Saved *{m.get('filename', 'your document')}* to *Documents*. Ask me for it any time.")
         if t == "audio":
+            data, mime = await client.download_media(ref)
+            heard = None
+            if data and llm.live():
+                mp3 = await asyncio.to_thread(skills.convert, data, mime or "audio/ogg", "mp3")
+                heard = await asyncio.to_thread(llm.transcribe, mp3[0] if mp3 else data, "mp3", str(user["id"]))
+            if heard:
+                await self.say(f"🎙️ I heard: _{heard}_")
+                return await self.on_text(user, heard, msg.get("id"), None)
             self.db.save_item(user["id"], "voice", f"Voice note {datetime.now(ZoneInfo(tz)):%d %b %H:%M}", media_id=ref, collection="Voice notes")
-            return await self.say("🎙️ Voice note saved. (Transcription switches on with the speech-to-text key in .env.)")
+            return await self.say("🎙️ Voice note saved. (I understand voice notes once the AI key is switched on.)")
         self.db.save_item(user["id"], t, caption or t, media_id=ref, collection="Media")
         return await self.say("Saved. 👍")
 
@@ -433,6 +510,12 @@ class Mindy:
 # ---------------------------------------------------------------- outbound (scheduled) messages
 def _in_window(last: str | None, now: datetime, hours: float = 23.8) -> bool:
     return bool(last) and (now - datetime.fromisoformat(last)) < timedelta(hours=hours)
+
+
+def places_saved_text(label: str) -> str:
+    return {"car": "🚗 Parking saved. When you need it, just ask *where's my car?*",
+            "home": "🏠 Home saved. Say *take me home* any time.",
+            "office": "🏢 Office saved. Say *take me to office* any time."}.get(label, f"📍 Saved as *{label}*. Ask for it any time.")
 
 
 async def deliver(db: DB, user_id: int, body: str, buttons, template: str, params, now: datetime | None = None,

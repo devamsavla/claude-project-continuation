@@ -257,3 +257,12 @@ def homework_hint(text: str, image: bytes | None = None, mime: str = "image/jpeg
                     "give a similar worked example, then ask them to try the final step themselves. Don't state the final answer "
                     "to their exact question.\n\nQUESTION: " + (text or "(see photo)"),
                     "You are Mindy, a patient study buddy. Be encouraging and brief.", image=image, mime=mime, who=who, max_tokens=700)
+
+
+def read_for_me(image: bytes, mime: str, ask: str, who: str | None = None) -> str | None:
+    """A letter, bill, notice, prescription or label explained in very simple words, in the language they used."""
+    lang = "Hindi (in Devanagari)" if re.search(r"[\u0900-\u097F]|\b(hindi|samjhao|batao|padh|kya likha)\b", ask.lower()) else "simple English"
+    return llm.chat("Read this document for someone who finds it hard to read. In " + lang + ", say in 3 to 5 short lines: what it is, "
+                    "what they need to do, by when, and how much money if any. If it looks like a scam, say so first. "
+                    "Never give medical advice; for medicines only read the name, dose and timing printed.\nTheir question: " + (ask or "what does this say?"),
+                    SYSTEM, image=image, mime=mime, who=who, max_tokens=350)

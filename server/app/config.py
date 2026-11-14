@@ -35,6 +35,7 @@ class Settings:
     template_lang: str = field(default_factory=lambda: _env("TEMPLATE_LANG", "en_GB"))
     care_template: str = field(default_factory=lambda: _env("CARE_TEMPLATE", "mindy_care"))
     care_alert_template: str = field(default_factory=lambda: _env("CARE_ALERT_TEMPLATE", "mindy_care_alert"))
+    sos_template: str = field(default_factory=lambda: _env("SOS_TEMPLATE", "mindy_sos"))
     login_template: str = field(default_factory=lambda: _env("LOGIN_TEMPLATE", "mindy_login_code"))
     app_url: str = field(default_factory=lambda: _env("APP_URL", "https://app.whatsonyourmind.online"))
     public_wa_number: str = field(default_factory=lambda: _env("PUBLIC_WA_NUMBER", "447700900000"))

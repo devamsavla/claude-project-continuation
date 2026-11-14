@@ -88,3 +88,22 @@ def chat_json(prompt: str, system: str = "", **kw) -> dict | None:
         return json.loads(raw[raw.index("{"): raw.rindex("}") + 1])
     except ValueError:
         return None
+
+
+def transcribe(audio: bytes, fmt: str = "mp3", who: str | None = None) -> str | None:
+    """Voice note -> text (any language), through the same cheap model (Gemini accepts audio)."""
+    if not live() or _over_budget(who):
+        return None
+    body = {"model": settings.llm_model, "max_tokens": 500, "messages": [{"role": "user", "content": [
+        {"type": "text", "text": "Transcribe this voice note exactly, in the language spoken. Output only the words."},
+        {"type": "input_audio", "input_audio": {"data": base64.b64encode(audio).decode(), "format": fmt}}]}]}
+    try:
+        r = httpx.post(settings.llm_base_url.rstrip("/") + "/chat/completions", json=body, timeout=40,
+                       headers={"Authorization": f"Bearer {settings.llm_key}"})
+        r.raise_for_status()
+        STATS["calls"] += 1
+        return (r.json()["choices"][0]["message"]["content"] or "").strip() or None
+    except Exception as e:
+        STATS["failed"] += 1
+        log.warning("transcribe failed: %s", e)
+        return None

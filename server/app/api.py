@@ -147,6 +147,13 @@ def make_router(db: DB, wa, mindy) -> APIRouter:
                 db.x(f"UPDATE users SET {k}=? WHERE id=?", (1 if d[k] else 0, me["id"]))
         return get_me(db.one("SELECT * FROM users WHERE id=?", (me["id"],)))
 
+    @r.post("/me/name")
+    def set_name(b: Body, me=Depends(me_dep)):
+        n = str(getattr(b, "name", "") or "").strip()[:40]
+        if n:
+            db.x("UPDATE users SET name=? WHERE id=?", (n, me["id"]))
+        return {"ok": True}
+
     @r.post("/link-code")
     def link_code(me=Depends(me_dep)):
         """A code to join this account with Instagram (send `link 123456` to Mindy there)."""
@@ -236,6 +243,49 @@ def make_router(db: DB, wa, mindy) -> APIRouter:
             raise HTTPException(422, "Unknown action.")
         people = [int(x) for x in getattr(b, "people", []) or []]
         return await asyncio.to_thread(hooks.do_action, db, me, item, action, getattr(b, "when", None), people)
+
+    @r.get("/buttons")
+    def buttons(me=Depends(me_dep)):
+        from .handlers import Mindy
+        key = Mindy(db).button_key(me)
+        base = settings.app_url.rstrip("/") + f"/b/{key}"
+        return {"key": key, "buttons": [{"id": a, "icon": i, "title": t, "url": f"{base}/{a}"} for a, (i, t) in
+                                         {"park": ("🚗", "I parked here"), "car": ("📍", "Where's my car"), "home": ("🏠", "Take me home"), "sos": ("🆘", "SOS to family")}.items()]}
+
+    # ------------------------------------------------------------ Android helper (on-screen guidance)
+    @r.post("/helper/register")
+    def helper_register(b: Body, request: Request):
+        dev = re.sub(r"[^\w-]", "", str(getattr(b, "device", "")))[:64]
+        if len(dev) < 8:
+            raise HTTPException(422, "Bad device id.")
+        if too_many("helper:" + (request.client.host if request.client else "x"), limit=20):
+            raise HTTPException(429, "Too many tries.")
+        user = db.user("dev:" + dev, (getattr(b, "name", None) or None), getattr(b, "tz", None) if getattr(b, "tz", None) in available_timezones() else settings.default_tz, "android")
+        return {"token": new_session(db, user["id"]), "me": public(user)}
+
+    @r.post("/helper/next")
+    async def helper_next(b: Body, me=Depends(me_dep)):
+        from . import helper
+        goal = (getattr(b, "goal", "") or "").strip()[:300]
+        nodes = [n for n in (getattr(b, "nodes", None) or []) if isinstance(n, dict) and isinstance(n.get("i"), int)][:150]
+        if not goal:
+            raise HTTPException(422, "What do you want to do?")
+        return await asyncio.to_thread(helper.next_step, goal, str(getattr(b, "pkg", "") or "")[:100], nodes,
+                                       [str(h)[:120] for h in (getattr(b, "history", None) or [])][-8:], str(getattr(b, "lang", "en")), str(me["id"]))
+
+    @r.post("/helper/stuck")
+    async def helper_stuck(b: Body, me=Depends(me_dep)):
+        """They're stuck: tell the family (in the app, by push, on WhatsApp) what they were trying to do."""
+        from .handlers import deliver
+        goal = (getattr(b, "goal", "") or "something on the phone")[:200]
+        who = me.get("name") or "Your family member"
+        fam = care.family_of(db, me["id"])
+        for f in fam:
+            await hub.send(f["id"], {"type": "notify", "title": f"📞 {who} is stuck", "body": f"Trying to: {goal}", "url": "/#care"})
+            await deliver(db, f["id"], f"📞 *{who}* is stuck on their phone.\nTrying to: {goal}\nGive them a call?", [], settings.care_alert_template, [who, goal],
+                          title=f"📞 {who} is stuck", url="/#care")
+        phones = [a["ext"] for f in fam for a in db.accounts(f["id"]) if a["channel"] == "wa"]
+        return {"told": len(fam), "call": phones[0] if phones else None}
 
     @r.get("/matches")
     def matches(me=Depends(me_dep)):

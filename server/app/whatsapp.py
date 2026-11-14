@@ -83,6 +83,9 @@ class WhatsApp:
         return await self._post({"to": to, "type": "template",
                                  "template": {"name": name or settings.login_template, "language": {"code": lang or settings.template_lang}, "components": comp}})
 
+    async def location(self, to: str, lat: float, lng: float, name: str = "", address: str = ""):
+        return await self._post({"to": to, "type": "location", "location": {"latitude": lat, "longitude": lng, "name": name[:100], "address": address[:200]}})
+
     async def link_button(self, to: str, body: str, label: str, url: str):
         """One tappable button that opens a link (Uber, Maps, UPI via /go)."""
         return await self._post({"to": to, "type": "interactive", "interactive": {"type": "cta_url", "body": {"text": body[:1024]},

@@ -176,10 +176,10 @@ def circle(image: bytes, x: float, y: float, r: float, label: str = "") -> bytes
     return out.getvalue()
 
 
-def store_media(data: bytes, ext: str) -> str:
-    """Keeps a file for a day and returns its public URL (chat apps need a link to send media)."""
+def store_media(data: bytes, ext: str, keep: bool = False) -> str:
+    """Keeps a file (a day, or for good with keep=True) and returns its public URL (chat apps need a link to send media)."""
     os.makedirs(MEDIA_DIR, exist_ok=True)
-    name = secrets.token_urlsafe(16) + "." + ext
+    name = ("keep-" if keep else "") + secrets.token_urlsafe(16) + "." + ext
     with open(os.path.join(MEDIA_DIR, name), "wb") as f:
         f.write(data)
     return f"{settings.app_url.rstrip('/')}/media/{name}"

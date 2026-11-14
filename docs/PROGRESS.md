@@ -88,6 +88,13 @@ The founder expects a traffic spike at launch. Every feature must:
 - [x] Tests: 31 pytest (incl. multi-person live sockets, care loop, khata, scam, Telegram, file tools) + two-browser Playwright runs
 - [x] Deploy kit: Dockerfile with ffmpeg, docker-compose + Caddy (auto HTTPS), one-script setup for Azure for Students
 
+## Done later on 14 Nov 2026
+
+- [x] WhatsApp moments: "where's my car" (pin + walking route + Street View + your photo), "take me home", home/office places, read-this-letter, voice notes understood (`places.py`)
+- [x] Mindy buttons: personal one-tap home-screen buttons (I parked here, Where's my car, Take me home, SOS to family) at `/b/<key>/<action>`
+- [x] **Android helper app** (`android/`): floating Mindy bubble, voice in Hindi/English, reads screen buttons as text, pulsing pointer + spoken step, opens apps at the right screen, "do it for me" mode, never touches PIN/OTP or pay buttons, "I'm stuck" alerts family. Server brain: `server/app/helper.py` (tested). APK builds in GitHub Actions (`.github/workflows/android.yml`) — **not compiled yet**: the first CI run is the compile check
+- [x] Pitch deck "Just tell Mindy" (moments, not features), made in Claude
+
 ## Session log
 
 | Date        | Work                                                                                                               |

@@ -58,6 +58,9 @@ class Telegram:
         return await self._call("sendMessage", {"chat_id": self._chat(to), "text": _plain(body),
                                                 "reply_markup": {"inline_keyboard": [[{"text": label, "url": url}]]}})
 
+    async def location(self, to, lat, lng, name="", address=""):
+        return await self._call("sendLocation", {"chat_id": self._chat(to), "latitude": lat, "longitude": lng})
+
     async def list_menu(self, to, body, button, rows, section="Options"):
         return await self.buttons(to, body, [(i, t) for i, t, _ in rows])
 

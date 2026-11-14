@@ -63,7 +63,14 @@ const V = {
   },
   meCards() {
     const { S, esc } = M;
-    return `<h2 class="sec"><span>Make Mindy yours</span></h2><div class="card">
+    setTimeout(async () => {
+      const el = document.getElementById("mbtns"); if (!el) return;
+      try { const r = await M.api("/buttons");
+        el.innerHTML = r.buttons.map(b => `<a class="list-item" href="${esc(b.url)}" target="_blank" rel="noopener" style="text-decoration:none"><span style="font-size:26px">${b.icon}</span><div class="grow"><div class="t">${esc(b.title)}</div><div class="s">Open, then Add to Home Screen</div></div><span class="pill">OPEN</span></a>`).join("");
+      } catch (_) {}
+    }, 0);
+    return `<h2 class="sec"><span>Mindy buttons</span></h2><div class="card"><p class="small muted" style="margin:0 0 6px">One-tap buttons for your home screen. Open one, then iPhone: Share → Add to Home Screen. Android: ⋮ → Add to Home screen.</p><div id="mbtns"></div></div>
+    <h2 class="sec"><span>Make Mindy yours</span></h2><div class="card">
       <label class="row" style="justify-content:space-between"><span><b>Simple mode</b><br><span class="small muted">Big buttons and voice. Great for parents.</span></span>
         <input type="checkbox" data-act-change="simple" ${S.me.simple ? "checked" : ""} style="width:24px;height:24px"></label>
       <label class="row" style="justify-content:space-between;margin-top:14px"><span><b>Friend matches</b><br><span class="small muted">When you and a friend save similar places or dishes, suggest doing it together.</span></span>

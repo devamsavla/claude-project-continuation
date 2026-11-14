@@ -73,6 +73,9 @@ class Instagram:
     async def read_and_typing(self, message_id: str):
         return {"skipped": "typing"}
 
+    async def location(self, to, lat, lng, name="", address=""):
+        return await self.text(to, f"📍 https://www.google.com/maps/search/?api=1&query={lat},{lng}")
+
     async def link_button(self, to, body, label, url):
         return await self.text(to, f"{body}\n{label}: {url}")
 

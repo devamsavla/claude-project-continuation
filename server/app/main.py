@@ -193,8 +193,88 @@ async def clean_media():
     if _os.path.isdir(skills.MEDIA_DIR):
         for f in _os.listdir(skills.MEDIA_DIR):
             p = _os.path.join(skills.MEDIA_DIR, f)
-            if _t.time() - _os.path.getmtime(p) > 86400:
+            if not f.startswith("keep-") and _t.time() - _os.path.getmtime(p) > 86400:
                 _os.remove(p)
+
+
+# ---------------------------------------------------------------- Mindy buttons (one tap from the home screen)
+BUTTONS = {"park": ("🚗", "I parked here", "Saving where you parked…"), "car": ("📍", "Where's my car", "Finding your car…"),
+           "home": ("🏠", "Take me home", "Getting directions home…"), "sos": ("🆘", "SOS to family", "Sending your location to your family…")}
+
+
+def _button_user(key: str):
+    if not re.fullmatch(r"[\w-]{8,20}", key):
+        raise HTTPException(404)
+    u = db.one("SELECT * FROM users WHERE button_key=?", (key,))
+    if not u:
+        raise HTTPException(404, "This button isn't linked to anyone. Ask Mindy for new buttons.")
+    return u
+
+
+@app.get("/b/{key}/{action}/manifest.json")
+def button_manifest(key: str, action: str):
+    _button_user(key)
+    icon, title, _ = BUTTONS.get(action) or (None, None, None)
+    if not title:
+        raise HTTPException(404)
+    return {"name": title, "short_name": title, "start_url": f"/b/{key}/{action}", "display": "standalone", "background_color": "#000000",
+            "theme_color": "#000000", "icons": [{"src": "/icon-192.png", "sizes": "192x192", "type": "image/png"}, {"src": "/icon-512.png", "sizes": "512x512", "type": "image/png"}]}
+
+
+@app.get("/b/{key}/{action}", response_class=HTMLResponse)
+def button_page(key: str, action: str):
+    _button_user(key)
+    if action not in BUTTONS:
+        raise HTTPException(404)
+    icon, title, doing = BUTTONS[action]
+    return f"""<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
+<title>{title}</title><meta name=apple-mobile-web-app-title content="{title}"><meta name=apple-mobile-web-app-capable content=yes>
+<link rel=apple-touch-icon href=/icon-192.png><link rel=manifest href="/b/{key}/{action}/manifest.json"><meta name=theme-color content="#000">
+<style>body{{margin:0;min-height:100vh;display:grid;place-items:center;background:#000;color:#F5F3EE;font-family:system-ui;text-align:center;padding:24px;box-sizing:border-box}}
+.i{{font-size:96px}}h1{{font-size:28px;margin:8px 0}}p{{color:#B9C0C6;font-size:18px;max-width:340px;margin:8px auto}}a.b,button{{display:inline-block;background:#25D366;color:#000;font-weight:800;font-size:20px;padding:16px 26px;border-radius:999px;border:0;text-decoration:none;margin-top:14px}}
+.tip{{font-size:14px;color:#8C959D;margin-top:26px}}</style></head><body><div><div class=i>{icon}</div><h1>{title}</h1><p id=s>{doing}</p><div id=x></div>
+<p class=tip>Tip: add this page to your home screen for a one-tap button.<br>iPhone: Share → Add to Home Screen · Android: ⋮ → Add to Home screen</p></div>
+<script>
+const A={json.dumps(action)}, K={json.dumps(key)}, s=document.getElementById('s'), x=document.getElementById('x');
+function where(cb){{ if(!navigator.geolocation){{s.textContent='This phone can\'t share location here.';return}}
+  navigator.geolocation.getCurrentPosition(p=>cb(p.coords.latitude,p.coords.longitude),()=>{{s.textContent='Please allow location, then tap again.';x.innerHTML='<button onclick="location.reload()">Try again</button>'}},{{enableHighAccuracy:true,timeout:15000}}); }}
+async function post(lat,lng){{ const r=await fetch('/b/'+K+'/'+A,{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{lat,lng}})}}); return r.json(); }}
+if(A==='park') where(async(a,b)=>{{const r=await post(a,b); s.textContent=r.message; x.innerHTML='<a class=b href="/b/'+K+'/car">Where\'s my car?</a>';}});
+if(A==='sos') where(async(a,b)=>{{const r=await post(a,b); s.textContent=r.message;}});
+if(A==='car'||A==='home') fetch('/b/'+K+'/'+A,{{method:'POST',headers:{{'Content-Type':'application/json'}},body:'{{}}'}}).then(r=>r.json()).then(r=>{{
+  s.textContent=r.message; if(r.url){{x.innerHTML='<a class=b href="'+r.url+'">Go</a>'+(r.street?'<br><a class=b style="background:#F5F3EE" href="'+r.street+'">Street View</a>':''); setTimeout(()=>location.href=r.url,900);}} }});
+</script></body></html>"""
+
+
+@app.post("/b/{key}/{action}")
+async def button_do(key: str, action: str, request: Request):
+    from . import places as _pl
+    from .care import family_of
+    from .handlers import deliver
+    from .realtime import hub
+    u = _button_user(key)
+    body = await request.json()
+    if action == "park":
+        _pl.save(db, u["id"], float(body["lat"]), float(body["lng"]), "car")
+        return {"message": "Saved ✅ Tap “Where's my car?” when you need it."}
+    if action in ("car", "home"):
+        p = _pl.latest(db, u["id"], action)
+        if not p:
+            return {"message": "Nothing saved yet. " + ("Use the 🚗 I parked here button when you park." if action == "car" else "Send Mindy your home location on WhatsApp and say it's home.")}
+        lk = _pl.links(p, "walking" if action == "car" else "driving")
+        return {"message": "Opening the route…", "url": lk[0][1], "street": lk[1][1]}
+    if action == "sos":
+        lat, lng = float(body["lat"]), float(body["lng"])
+        maps = f"https://www.google.com/maps/search/?api=1&query={lat},{lng}"
+        who = u.get("name") or "Your family member"
+        fam = family_of(db, u["id"])
+        for f in fam:
+            await hub.send(f["id"], {"type": "notify", "title": f"🆘 {who} needs help", "body": "Tap to see where they are.", "url": maps})
+            await deliver(db, f["id"], f"🆘 *{who} pressed SOS.*\nTheir location: {maps}\nCall them now.", [], settings.sos_template, [who, maps],
+                          title=f"🆘 {who} needs help", url=maps)
+        return {"message": f"Sent to {len(fam)} family member{'s' if len(fam) != 1 else ''} ✅ Stay where you are if you can." if fam else
+                "You haven't linked family yet. Ask Mindy “family” to set it up. Call 112 in an emergency."}
+    raise HTTPException(404)
 
 
 # ---------------------------------------------------------------- website waitlist

@@ -38,11 +38,12 @@ CREATE INDEX IF NOT EXISTS scam_num ON scam_reports(number);
 CREATE INDEX IF NOT EXISTS scam_hash ON scam_reports(text_hash);
 CREATE TABLE IF NOT EXISTS khata(id INTEGER PRIMARY KEY, user_id INTEGER, person TEXT, delta INTEGER, kind TEXT, note TEXT, created_at TEXT);
 CREATE INDEX IF NOT EXISTS khata_user ON khata(user_id, person);
+CREATE TABLE IF NOT EXISTS places(id INTEGER PRIMARY KEY, user_id INTEGER, label TEXT, lat REAL, lng REAL, name TEXT, note TEXT, photo TEXT, created_at TEXT);
 CREATE TABLE IF NOT EXISTS verified_numbers(number TEXT PRIMARY KEY, name TEXT, created_at TEXT);
 CREATE INDEX IF NOT EXISTS care_log_open ON care_log(took_at, alerted_at, sent_at);
 """
 USER_COLUMNS = [("status", "TEXT DEFAULT 'free'"), ("status_at", "TEXT"), ("notify", "TEXT DEFAULT 'both'"), ("hue", "INTEGER"),
-                ("share_matches", "INTEGER DEFAULT 1"), ("simple", "INTEGER DEFAULT 0"), ("email", "TEXT"), ("upi", "TEXT")]
+                ("share_matches", "INTEGER DEFAULT 1"), ("simple", "INTEGER DEFAULT 0"), ("email", "TEXT"), ("upi", "TEXT"), ("button_key", "TEXT")]
 EXTRA_COLUMNS = {"items": [("rkind", "TEXT"), ("title", "TEXT"), ("place", "TEXT"), ("done_at", "TEXT")],
                  "reminders": [("kind", "TEXT DEFAULT 'normal'"), ("set_by", "INTEGER"), ("item_id", "INTEGER")]}
 

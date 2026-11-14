@@ -1,5 +1,6 @@
 """The 'tech friend' layer: saves that become real, family care, do-it links, khata, scam shield, file tools, Telegram."""
 import asyncio
+import re
 import subprocess
 from datetime import datetime, timedelta, timezone
 
@@ -181,3 +182,56 @@ def test_telegram_channel():
     tg.outbox.clear()
     asyncio.run(send_due(db))
     assert any("Stand-up call" in str(m) for m in tg.outbox)
+
+
+def test_parking_and_buttons():
+    ext = "919855500001"
+    out = wa_send(ext, "where's my car?", "pk0")
+    assert "Send me your location" in text_of(out[-1])
+    out = wa_send(ext, "I just parked", "pk1")
+    assert "Location" in text_of(out[-1])
+    wa.outbox.clear()
+    asyncio.run(mindy.handle({"from": ext, "id": "pk2", "type": "location", "location": {"latitude": 19.0176, "longitude": 72.8562}}, "Asha"))
+    assert "Parking saved" in text_of(wa.outbox[-1])
+    wa_send(ext, "parked at B2 pillar 14", "pk3")
+    out = wa_send(ext, "where is my car", "pk4")
+    assert any(m.get("type") == "location" and m["location"]["latitude"] == 19.0176 for m in out)
+    last = out[-1]
+    assert "B2 pillar 14" in text_of(last) and "travelmode=walking" in last["interactive"]["action"]["parameters"]["url"]
+    assert "map_action=pano" in text_of(last)  # Street View link
+    # a location with no context asks what it is
+    wa.outbox.clear()
+    asyncio.run(mindy.handle({"from": ext, "id": "pk5", "type": "location", "location": {"latitude": 19.1, "longitude": 72.9}}, "Asha"))
+    pid = wa.outbox[-1]["interactive"]["action"]["buttons"][1]["reply"]["id"]
+    out = wa_button(ext, pid, "pk6")
+    assert "Home saved" in text_of(out[-1])
+    out = wa_send(ext, "take me home", "pk7")
+    assert "travelmode=driving" in str(out[-1])
+    # home-screen buttons
+    out = wa_send(ext, "give me my buttons", "pk8")
+    url = re.search(r"https://\S+/b/([\w-]+)/park", text_of(out[-1]))
+    key = url.group(1)
+    assert client.get(f"/b/{key}/park").status_code == 200
+    assert client.get(f"/b/{key}/park/manifest.json").json()["short_name"] == "I parked here"
+    assert client.post(f"/b/{key}/park", json={"lat": 19.2, "lng": 72.95}).json()["message"].startswith("Saved")
+    r = client.post(f"/b/{key}/car", json={}).json()
+    assert "19.2" in r["url"] and "pano" in r["street"]
+    assert client.get("/b/nope-nope-nope/park").status_code == 404
+    assert "haven't linked family" in client.post(f"/b/{key}/sos", json={"lat": 19.2, "lng": 72.95}).json()["message"]
+
+
+def test_android_helper_endpoints():
+    r = client.post("/api/helper/register", json={"device": "test-device-123456", "tz": "Asia/Kolkata", "name": "Meena"}).json()
+    h = {"Authorization": f"Bearer {r['token']}"}
+    # first step from the home screen: open Uber with the drop filled in
+    s = client.post("/api/helper/next", json={"goal": "Phoenix Mall jaana hai uber se", "pkg": "com.android.launcher3", "nodes": [], "lang": "hi"}, headers=h).json()
+    assert s["action"] == "open" and "m.uber.com" in s["url"] and "Phoenix" in s["url"]
+    # inside Uber: points at the right button
+    nodes = [{"i": 0, "t": "Where to?", "k": 1}, {"i": 1, "t": "Uber Go", "k": 1}, {"i": 2, "t": "Confirm UberGo", "k": 1}]
+    s = client.post("/api/helper/next", json={"goal": "book uber go", "pkg": "com.ubercab", "nodes": nodes, "history": ["opened uber"], "lang": "en"}, headers=h).json()
+    assert s["action"] in ("tap", "type") and s["target"] in (1, 2)
+    # PIN screens: Mindy looks away
+    s = client.post("/api/helper/next", json={"goal": "pay", "pkg": "com.phonepe.app", "nodes": [{"i": 0, "t": "ENTER UPI PIN"}], "history": ["x"]}, headers=h).json()
+    assert s["action"] == "private"
+    assert client.post("/api/helper/stuck", json={"goal": "book a cab"}, headers=h).json()["told"] == 0
+    assert client.post("/api/me/name", json={"name": "Meena"}, headers=h).json()["ok"]
