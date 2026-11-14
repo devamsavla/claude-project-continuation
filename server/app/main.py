@@ -33,11 +33,13 @@ log = logging.getLogger("mindy")
 
 db = DB(settings.database_path)
 mindy = Mindy(db)
-scheduler = AsyncIOScheduler(timezone="UTC")
+scheduler: AsyncIOScheduler | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global scheduler
+    scheduler = AsyncIOScheduler(timezone="UTC")  # a fresh one per start, bound to the running loop
     scheduler.add_job(send_due, "interval", seconds=30, args=[db], id="reminders", max_instances=1, coalesce=True)
     scheduler.add_job(care_check, "interval", seconds=60, args=[db], id="care", max_instances=1, coalesce=True)
     scheduler.add_job(clean_media, "interval", hours=1, id="media")
