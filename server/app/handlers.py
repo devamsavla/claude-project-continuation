@@ -118,6 +118,14 @@ class Mindy:
         text, links = r["text"], list(r.get("links") or [])
         if r.get("app") and user:
             links.append((r["app"][0], more.magic_link(self.db, user["id"], r["app"][1])))
+        if r.get("flow") and settings.flow_person_id and _CONV.get()[0] is wa:
+            client, to = _CONV.get()
+            return await client.flow(to, settings.flow_person_id, await self._out(text), "Add a person", "PERSON")
+        if r.get("list"):
+            client, to = _CONV.get()
+            if links:
+                text += "".join(f"\n{l}: {u}" for l, u in links)
+            return await client.list_menu(to, await self._out(text), "Open", [tuple(x) for x in r["list"]][:10], "Mindy")
         if r.get("buttons"):
             if links:
                 text += "".join(f"\n{l}: {u}" for l, u in links)
@@ -194,6 +202,8 @@ class Mindy:
             return msg["text"]["body"]
         if t == "interactive":
             i = msg["interactive"]
+            if i.get("nfm_reply"):  # a WhatsApp Flow form was submitted
+                return "flow:" + (i["nfm_reply"].get("response_json") or "{}")
             return (i.get("button_reply") or i.get("list_reply") or {}).get("id", "")
         if t in ("image", "document", "video"):
             return msg[t].get("caption", "")
@@ -620,6 +630,16 @@ class Mindy:
                 self.db.add_reminder(user["id"], ev.get("text", "From your photo"), due_utc)
                 lines.append(f"⏰ Reminder set for *{fmt_local(due_utc, tz)}*: {ev.get('text')}")
             return await self.say("\n".join(lines))
+        if t == "document" and (re.search(r"statement|bank|passbook|transactions", (caption + " " + m.get("filename", "")).lower())
+                                or (m.get("mime_type") or "").endswith("csv")):
+            data, mime = await client.download_media(ref)
+            from . import money
+            txns = await asyncio.to_thread(money.parse_statement, data or b"", mime or m.get("mime_type", ""), m.get("filename", ""))
+            if not txns:
+                return await self.say("I couldn't read transactions from that file. A CSV export from your bank app works best, or a text PDF (not a photo).")
+            n = money.save_spend(self.db, user["id"], txns)
+            return await self.more_reply(more.R(f"🔒 Read {len(txns)} transactions ({n} new). I kept only dates, amounts and shop names, and deleted the file.\n\n"
+                                                + money.summary_text(self.db, user), app=("See the breakdown", "money")))
         if t == "document":
             self.db.save_item(user["id"], "doc", f"{m.get('filename', 'Document')} {caption}".strip(), media_id=ref, collection="Documents")
             return await self.say(f"📄 Saved *{m.get('filename', 'your document')}* to *Documents*. Ask me for it any time.")

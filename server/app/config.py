@@ -34,6 +34,7 @@ class Settings:
     email_domain: str = field(default_factory=lambda: _env("EMAIL_DOMAIN", "in.whatsonyourmind.online"))
     email_secret: str = field(default_factory=lambda: _env("EMAIL_WEBHOOK_SECRET", "dev-email-secret"))
     gateway_secret: str = field(default_factory=lambda: _env("GATEWAY_SECRET", "dev-gateway-secret"))
+    flow_person_id: str = field(default_factory=lambda: _env("WA_FLOW_PERSON_ID"))
     ask_questions: bool = field(default_factory=lambda: _env("ASK_QUESTIONS", "1") == "1")
     database_path: str = field(default_factory=lambda: _env("DATABASE_PATH", "./mindy.db"))
     default_tz: str = field(default_factory=lambda: _env("DEFAULT_TIMEZONE", "Europe/London"))

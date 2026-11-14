@@ -94,6 +94,12 @@ class WhatsApp:
     async def audio(self, to: str, link: str):
         return await self._post({"to": to, "type": "audio", "audio": {"link": link}})
 
+    async def flow(self, to: str, flow_id: str, body: str, cta: str, screen: str):
+        """A WhatsApp Flow: a real form inside the chat (published once in WhatsApp Manager, see flows/)."""
+        return await self._post({"to": to, "type": "interactive", "interactive": {"type": "flow", "body": {"text": body[:1024]},
+            "action": {"name": "flow", "parameters": {"flow_message_version": "3", "flow_id": flow_id, "flow_cta": cta[:20],
+                                                       "flow_action": "navigate", "flow_action_payload": {"screen": screen}}}}})
+
     async def image(self, to: str, link: str, caption: str = ""):
         return await self._post({"to": to, "type": "image", "image": {"link": link, "caption": caption[:1024]}})
 

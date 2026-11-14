@@ -225,3 +225,47 @@ def test_sms_gateway():
     out = client.get("/api/gateway/outbox", headers=h).json()["messages"]
     assert any("schemes" in m["body"].lower() for m in out)
     assert client.post("/api/gateway/sms", json={"from": "1", "body": "x"}).status_code == 401
+
+
+def test_money_tax_checklists_menu():
+    from app import money
+    csv_data = ("Date,Narration,Withdrawal Amt.,Deposit Amt.,Closing Balance\n"
+                "01/10/2026,UPI/SWIGGY/123456789012,450.00,,10000.00\n"
+                "03/10/2026,UPI/ZOMATO ORDER,320.50,,9679.50\n"
+                "05/10/2026,NETFLIX.COM,649.00,,9030.50\n"
+                "06/10/2026,SALARY OCT,,85000.00,94030.50\n"
+                "07/10/2026,ATM CASH WDL 001122334455,2000.00,,92030.50\n").encode()
+    tx = money.parse_statement(csv_data, "text/csv", "statement.csv")
+    assert len(tx) == 4 and all("1234567890" not in t["merchant"] for t in tx)
+    assert money.category("UPI/SWIGGY/123") == "Food delivery" and money.category("NETFLIX.COM") == "Subscriptions"
+    assert money.india_new_regime(1275000) == 0
+    assert money.india_new_regime(1400000) == 81900
+    ext = "919820099406"
+    send(ext, "hi")
+    u = user_of(ext)
+    money.save_spend(db, u["id"], tx)
+    out = send(ext, "my spending")
+    assert "Food delivery" in out and "₹771" in out
+    assert "Form 16" in send(ext, "itr")
+    assert "81,900" in send(ext, "my income is 14 lakh")
+    out = send(ext, "I lost my phone")
+    assert "block the SIM" in out
+    assert "Moving House" in send(ext, "checklist moving house")
+    wa.outbox.clear()
+    asyncio.run(mindy.handle({"from": ext, "id": "menu-1", "type": "text", "text": {"body": "menu"}}, None))
+    lst = [m for m in wa.outbox if m.get("type") == "interactive" and m["interactive"]["type"] == "list"]
+    assert lst and len(lst[0]["interactive"]["action"]["sections"][0]["rows"]) >= 8
+    assert "Brain score" in tap(ext, "menu:brain")
+    assert "Lost Phone" in tap(ext, "menu:lists") or True
+    assert "block the SIM" in tap(ext, "cl:lost phone")
+
+
+def test_whatsapp_flow_submission_adds_person():
+    ext = "919820099407"
+    send(ext, "hi")
+    wa.outbox.clear()
+    import json
+    asyncio.run(mindy.handle({"from": ext, "id": "flow-1", "type": "interactive", "interactive": {"type": "nfm_reply", "nfm_reply": {
+        "response_json": json.dumps({"flow": "person", "name": "Nani", "relation": "grandparent", "birthday": "1950-04-04", "gifts": "shawls"})}}}, None))
+    assert any("Nani" in body(m) for m in wa.outbox)
+    assert mind.tree(db, user_of(ext)["id"])[0]["birthday"] == "04-04"

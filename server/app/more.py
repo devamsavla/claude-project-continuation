@@ -12,7 +12,7 @@ from datetime import date, datetime, timedelta, timezone
 from urllib.parse import quote, quote_plus, urlencode
 from zoneinfo import ZoneInfo
 
-from . import care, countries, llm, mind, skills
+from . import care, countries, llm, mind, money, skills
 from .config import settings
 from .db import DB, now_iso
 
@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS tryon_use(user_id INTEGER, day TEXT, n INTEGER, PRIMA
 
 def init(db: DB):
     mind.init(db)
+    money.init(db)
     with db.lock:
         db.conn.executescript(SCHEMA)
         have = {r[1] for r in db.conn.execute("PRAGMA table_info(users)").fetchall()}
@@ -710,6 +711,15 @@ def handle(db: DB, user: dict, text: str, key: str | None = None) -> dict | None
     except Exception:
         log.exception("draft_reply failed")
     low = text.lower().strip()
+    if low in ("menu", "m", "☰", "options", "portal", "start menu", "main menu"):
+        return R("☰ *Your Mindy*\nTap anything. No typing needed.", list=money.MENU)
+    if re.match(r"^(my )?(spend|spending|expenses|where did my money go|money summary)\b", low):
+        return R(money.summary_text(db, user), app=("See the breakdown", "money"))
+    if re.match(r"^(itr|income tax|tax|taxes|tax return|file (my )?(itr|taxes|tax return)|self assessment|my (income|salary|ctc) is)\b", low):
+        return R(money.tax_help(db, user, text))
+    r = _safe(money.checklist, db, user, text)
+    if r:
+        return R(r["text"], app=r.get("app"))
     if re.match(r"^(schemes?|yojana|sarkari yojana|benefits|government help|govt help|am i eligible)\b", low):
         return _safe(schemes, user, text, db)
     if key and re.search(r"\b(calendar|e-?mail|gmail|outlook|inbox)\b", low):
@@ -746,6 +756,26 @@ def on_button(db: DB, user: dict, bid: str) -> dict | None:
         body = (f"✅ {me} confirmed: it's really them." if ans == "yes"
                 else f"🚨 *{me} says it is NOT them.* Hang up / stop replying. Don't send money. Report it: forward the message to me and say *report*.")
         return R("Thank you. I've told them." if ans == "yes" else "Thank you. I've warned them it's a scam. 🛡️", notify=[(r["asker"], body, [])])
+    if bid.startswith("flow:"):
+        import json
+        try:
+            d = json.loads(bid[5:])
+        except ValueError:
+            return None
+        if d.get("flow") == "person" and d.get("name"):
+            bd = mind.parse_date(str(d.get("birthday") or ""), future=False)
+            pid = mind.add_person(db, user["id"], re.sub(r"[^\w .'-]", "", d["name"])[:40], d.get("relation") or "", f"{bd:%m-%d}" if bd else None)
+            if d.get("gifts"):
+                db.x("UPDATE people SET gift_ideas=? WHERE id=?", (str(d["gifts"])[:300], pid))
+            n = len(mind.tree(db, user["id"]))
+            return R(f"🌳 *{d['name'].title()}* is in your family tree ({n} people)." + (" I'll remind you before their birthday with gift ideas." if bd else ""),
+                     app=("See your tree", "tree"))
+        return None
+    if bid.startswith("menu:"):
+        return _menu(db, user, bid[5:])
+    if bid.startswith("cl:"):
+        r = money.checklist(db, user, "checklist " + bid[3:])
+        return R(r["text"], app=r.get("app")) if r else None
     if bid == "okday":
         db.x("INSERT INTO safety(user_id,kind,due_at,created_at,cleared_at) VALUES(?,?,?,?,?)", (user["id"], "ok", now_iso(), now_iso(), now_iso()))
         return R("💚 Thank you! Your family can see you're OK today.")
@@ -758,6 +788,10 @@ def on_button(db: DB, user: dict, bid: str) -> dict | None:
         return R("Tell me what and when, like: remind me medicine 9am every day.")
     if bid == "sms:scam":
         return R("Send me the message or number you got, and I'll check it.")
+    if bid == "safety:check":
+        return safety(user, "check on me", db)
+    if bid == "safety:ok":
+        return safety(user, "daily ok on", db)
     if bid == "trip:share":
         fam = care.family_of(db, user["id"])
         f = mind.facts(db, user["id"]).get("next_trip", "")
@@ -771,6 +805,43 @@ def on_button(db: DB, user: dict, bid: str) -> dict | None:
             db.x("UPDATE users SET mindy_name=? WHERE id=?", (name, user["id"]))
             return R(f"🥹 {name}. I'll wear it with pride.")
         return R("Mindy it stays! 💚")
+    return None
+
+
+def _menu(db, user, what) -> dict | None:
+    uid = user["id"]
+    if what == "brain":
+        s = brain_score(db, user)
+        q = s.get("next")
+        out = R(f"🧠 *Brain score {s['score']}* · {s['level']}", app=("Open your brain", "brain"))
+        if q:
+            mind.mark_asked(db, uid, q["key"])
+            out["text"] += "\n\n💭 " + q["q"]
+            out["buttons"] = [(f"q:{q['key']}:{o['value']}", o["label"]) for o in q["opts"]][:3]
+            if q.get("free"):
+                _kv_set(db, f"await_q:{uid}", q["key"])
+        return out
+    if what == "family":
+        ppl = mind.tree(db, uid)
+        fam = care.family_of(db, uid)
+        lines = "\n".join(f"• {p['name']}" + (f" ({p['relation']})" if p.get("relation") else "") for p in ppl[:10]) or "Nobody yet."
+        return R(f"🌳 *Your family tree* ({len(ppl)})\n{lines}\n\nLinked on Mindy for care: {len(fam)}", app=("Grow your tree", "tree"), flow="person")
+    if what == "money":
+        return R(money.summary_text(db, user), app=("See the breakdown", "money"))
+    if what == "docs":
+        return vault(user, "my documents", db)
+    if what == "lists":
+        return R("✅ *Ready checklists*. Pick one:", list=[(f"cl:{k}", k.title()[:24], "") for k in money.CHECKLISTS][:10])
+    if what == "safety":
+        return R("🛡️ *Safety*\n• Forward any message or link → I check it\n• _check on me_ → I check in 30 min and alert family if you don't answer\n"
+                 "• _code word mango_ → beats deepfake calls\n• _is this really Mum?_ → I ask the real Mum", buttons=[("safety:check", "Check on me"), ("safety:ok", "Daily I'm OK")])
+    if what == "style":
+        return wardrobe(user, "what should i wear today", db)
+    if what == "plans":
+        rows = db.upcoming(uid, 6)
+        return R("📅 *Coming up*\n" + ("\n".join(f"• {r['text']}" for r in rows) or "Nothing yet. Say _remind me to…_"), app=("Open today", "now"))
+    if what == "help":
+        return human(user, "human", db)
     return None
 
 
