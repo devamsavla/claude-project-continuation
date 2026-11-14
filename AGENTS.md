@@ -32,7 +32,10 @@ use the editor.
 ## Project rules
 
 - Read `docs/PROGRESS.md` first and update it (plus `roadmap.md`) at the end of every working session. Why: it is the hand-off record other contributors and AI models build on.
-- `legacy/claude-launch-kit/` is read-only reference for porting and is excluded from build, lint and tests. Why: it is the original Python/vanilla-JS build, kept only as a behaviour spec.
+- `server/` is the live Mindy backend and app (Python, its own tests: `cd server && pytest -q`). It is not part of the Lovable build. Why: decided 14 Nov 2026 to ship the working, tested server instead of porting it (see docs/PROGRESS.md).
+- On WhatsApp, Mindy stays task-specific (no open-ended chat): open chat lives on Telegram and in the app. Why: WhatsApp's Business terms ban general-purpose AI chatbots.
+- AI calls go through `server/app/llm.py` only (rules first, daily per-person budget, cache). Why: cheapest possible cost.
+- `legacy/claude-launch-kit/` is an older copy kept for history and is excluded from build, lint and tests.
 - The marketing site (/, /whatsapp, /instagram, /app, /privacy, /terms) renders the original whatsonyourmind.online markup from `src/site/pages/*` through `SitePage`, with its own stylesheet per route and behaviour in `src/site/site-init.ts`. Why: keeps the hand-built site pixel-identical to the source; edit copy in those markup files, not in Tailwind components.
 - Site stylesheets start with a zero-specificity `revert` block for `.site-root`. Why: the app's global base reset would otherwise change the site's spacing, lists and widths.
 - The design tour is a self-contained static file at `public/try/index.html`; link to `/try/index.html`. Why: it is a single-file prototype with demo data and needs no app code.

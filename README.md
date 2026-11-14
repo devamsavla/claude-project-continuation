@@ -3,8 +3,9 @@
 > Just text Mindy on WhatsApp: save anything, find it in plain words, get reminders in any time zone.
 > Then the free Mindy app for friends, plans and games.
 
-**Status:** pre-launch. The marketing website, design tour and waitlist are live in this codebase.
-The real Mindy app (Stage 2) and the WhatsApp / Instagram bot (Stage 3) are next.
+**Status:** pre-launch, everything built. The marketing website (Lovable, this repo's `src/`) and the
+**Mindy server** (`server/`: the real Mindy app, WhatsApp, Instagram and Telegram bots, family care, khata, scam
+shield, screenshot help) are ready to deploy. See **[server/DEPLOY.md](server/DEPLOY.md)** and **[docs/VISION.md](docs/VISION.md)**.
 See **[docs/PROGRESS.md](docs/PROGRESS.md)** for the full progress report and hand-off notes.
 
 ---
@@ -18,9 +19,21 @@ See **[docs/PROGRESS.md](docs/PROGRESS.md)** for the full progress report and ha
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)                    | Stack, folder map, how the site is rendered, database, conventions                      |
 | [roadmap.md](roadmap.md)                                        | The live task list (checkboxes)                                                         |
 | [AGENTS.md](AGENTS.md)                                          | Rules every human or AI contributor must follow                                         |
-| [legacy/claude-launch-kit/](legacy/claude-launch-kit/README.md) | The original Python backend + web app to port in Stage 2 (reference only, not built)    |
+| [docs/VISION.md](docs/VISION.md)                                | One tech friend for everything: hooks, channels, native helper apps (Layers 2 and 3)    |
+| [server/](server/README.md)                                     | **The Mindy server**: app + API + WhatsApp/Instagram/Telegram bots. Deploy: server/DEPLOY.md |
+| [legacy/claude-launch-kit/](legacy/claude-launch-kit/README.md) | Older copy of the launch kit (superseded by `server/`, kept for history)                |
 
 ## Stack
+
+Two parts, deployed separately:
+
+1. **Website** (this folder's `src/`, synced with Lovable) — details below.
+2. **Mindy server** (`server/`): Python FastAPI + SQLite + WebSockets + scheduler, serving the Mindy web app (PWA)
+   at app.whatsonyourmind.online and the bots at api.whatsonyourmind.online. AI is rules-first, then the cheapest
+   model through any OpenAI-compatible API (default Gemini 2.5 Flash-Lite). One Docker container + Caddy.
+   `cd server && pip install -r requirements.txt && pytest -q` (31 tests).
+
+Website stack:
 
 - **TanStack Start v1** (React 19, file-based routing, server functions, SSR) on **Vite 7**
 - **Tailwind CSS v4** (configured in `src/styles.css`) + shadcn/ui primitives

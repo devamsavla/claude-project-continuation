@@ -31,3 +31,11 @@ dist-ssr
 *.sln
 *.sw?
 .env
+
+# Mindy server
+server/.env
+server/*.db
+server/*.db-*
+server/media/
+__pycache__/
+.pytest_cache/

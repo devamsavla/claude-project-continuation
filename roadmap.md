@@ -10,17 +10,21 @@ Live task list. Details and context: [docs/PROGRESS.md](docs/PROGRESS.md). Produ
 - [x] Free / Plus / Care plans, extras and business income shown on the site (approved prices, tested)
 - [x] Repo organised for hand-off: README, docs/, legacy reference, progress report
 
-## Stage 2 — The real Mindy app at `/mindy` (next)
+## Stage 2 — The real Mindy app (done, in `server/`)
 
-Decided: email + Google sign-in; rules-first parsing with the cheapest built-in AI model as fallback.
+Decided 14 Nov 2026: ship the tested Python server instead of porting. Sign-in: WhatsApp code or Google.
 
-- [ ] 2a Database: profiles (name, tz, status, notify, hue), friends, invites, chats, chat members, messages, items (+ search), reminders, lists, occasions, moods, stamps, plans, plan people, push subscriptions, link codes, channel accounts
-- [ ] 2b Sign-in page (email + Google), profile on sign-up, invite links
-- [ ] 2c Port `app.js` / `mindy.js` / `app.css`; API calls become server functions with the same JSON shapes as `api.py`
-- [ ] 2d Port `brain.py` rules (dates, reminders, lists, birthdays, plans, money) to TypeScript; AI only when rules fail
-- [ ] 2e Live updates (chat, status, plans); hand cricket + Last Card state in the database
-- [ ] 2f Scheduled reminder delivery + phone notifications (Web Push)
-- [ ] 2g Admin numbers page, export and delete my data; point "Open the app" (`src/site/config.ts`) at `/mindy`
+- [x] App: friends, live status, chats with @mindy, plans, watch parties, hand cricket, Last Card, Mind, passport, push
+- [x] Saves → real life, friend matches, streak
+- [x] Family care + simple mode; khata + UPI links; scam shield; do-it links; screenshot help; homework help; file tools
+- [x] Telegram bot; Google sign-in
+- [ ] **Deploy** to Azure for Students (server/DEPLOY.md) — founder: create VM, add DNS records, add keys
+- [ ] Get Meta templates approved: mindy_reminder, mindy_care, mindy_care_alert, mindy_login_code
+
+## Layer 2 / 3 — native helpers (see docs/VISION.md)
+
+- [ ] Android helper: on-screen pointer over any app (accessibility overlay), do-it mode, caller ID + spam blocking, privacy scan
+- [ ] iPhone helper: live screen guidance (ReplayKit + Picture-in-Picture + Live Activity), CallKit spam labels
 
 ## Simple mode — for older people (scope agreed)
 
@@ -39,7 +43,7 @@ Decided: email + Google sign-in; rules-first parsing with the cheapest built-in 
 
 ## Stage 3 — Mindy on WhatsApp and Instagram
 
-- [ ] Webhooks with signature checks; task-specific bot only (WhatsApp AI-chatbot policy)
+- [x] Webhooks with signature checks; task-specific bot only (WhatsApp AI-chatbot policy) — in server/
 - [ ] Message templates approved by Meta — **blocked: needs Meta app credentials from the founder**
 
 ## Business (after launch)

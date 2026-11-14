@@ -1,0 +1,15 @@
+{
+  "name": "Mindy",
+  "short_name": "Mindy",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "description": "Your friends, plans, reminders and saves. Works with Mindy on WhatsApp and Instagram.",
+  "icons": [
+    {"src": "icon-192.png", "sizes": "192x192", "type": "image/png"},
+    {"src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"}
+  ]
+}
