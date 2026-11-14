@@ -165,7 +165,7 @@ function route() {
   window.scrollTo(0, 0);
   const P = window.MPV || {};
   if (tab === "now" && S.me && S.me.simple && P.simple) return P.simple(v);
-  ({ now: viewNow, chats: viewChats, chat: viewChat, plans: viewPlans, mind: viewMind, me: viewMe, care: P.care, khata: P.khata, tools: P.tools }[tab] || viewNow)(v, arg);
+  ({ now: viewNow, chats: viewChats, chat: viewChat, plans: viewPlans, mind: viewMind, me: viewMe, care: P.care, khata: P.khata, tools: P.tools }[tab] || (["brain", "tree", "clip", "money"].includes(tab) && P[tab]) || viewNow)(v, arg);
 }
 function setBadge() { const b = $("#badge"); if (b) { b.hidden = !S.unread; b.textContent = S.unread; } }
 async function refreshChats() { try { S.chats = await api("/chats"); S.unread = S.chats.reduce((a, c) => a + c.unread, 0); setBadge(); } catch (_) {} }

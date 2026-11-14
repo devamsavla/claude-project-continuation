@@ -247,6 +247,16 @@ def make_more_router(db: DB, mindy) -> APIRouter:
         u = db.one("SELECT * FROM users WHERE id=?", (me["id"],))
         return {"name": more.mindy_name(u), "hue": u.get("mindy_hue"), "persona": u.get("persona"), "lang": u.get("lang") or "en"}
 
+    @r.get("/api/me/key")
+    def my_key(me=Depends(me_dep)):
+        return {"button_key": mindy.button_key(me)}
+
+    @r.get("/api/money")
+    def money_summary(me=Depends(me_dep)):
+        from . import money
+        s = money.summary(db, me)
+        return {**s, "cur": countries.for_user(db, me).get("cur") or ""}
+
     @r.get("/api/brain")
     def brain(me=Depends(me_dep)):
         return more.brain_score(db, me)
