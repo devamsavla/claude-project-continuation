@@ -2,7 +2,7 @@
 /* eslint-disable */
 // Home page behaviour: the Mindy-to-Mindy stage and the 50-person slider.
 export function initHome(){
-  var root=document.querySelector(".mm"); if(!root||root.dataset.on) return; root.dataset.on="1";
+  var root=document.querySelector(".mm"); if(!root||root.dataset.on||!root.querySelector("#mm-a")) return; root.dataset.on="1";
   var A="/", $=function(s){return root.querySelector(s)};
   // ---------- Mindy-to-Mindy stage
   var S={

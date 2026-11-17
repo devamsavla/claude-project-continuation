@@ -309,3 +309,24 @@ def test_mindy_to_mindy():
     # things that must not be hijacked
     assert "Mindy here" not in send(a, "remind me to call mum at 5pm")
     assert "I'll check on you" in send(a, "check on me")
+
+
+def test_m2m_in_the_app():
+    from app import m2m
+    ha, hb = signin("+447700900320"), signin("+447700900321")
+    client.post("/api/me/name", headers=ha, json={"name": "Asha"})
+    client.post("/api/me/name", headers=hb, json={"name": "Ben"})
+    a = client.get("/api/m2m", headers=ha).json()
+    assert a["people"] == [] and "wa.me/" in a["link"]
+    ua = user_of("447700900320"); ub = user_of("447700900321")
+    assert m2m.join(db, ub, m2m.invite_code(db, ua["id"]))
+    a = client.get("/api/m2m", headers=ha).json()
+    assert a["people"][0]["name"] == "Ben"
+    r = client.post("/api/m2m/send", headers=ha, json={"to": ub["id"], "kind": "money", "amount": 20, "text": "pizza"})
+    assert r.status_code == 200 and "Ben" in r.json()["reply"]
+    inbox = client.get("/api/m2m", headers=hb).json()["inbox"]
+    assert inbox and "£20 for pizza" in inbox[0]["text"] and inbox[0]["from"] == "Asha"
+    assert client.post(f"/api/m2m/{inbox[0]['id']}/answer", headers=hb, json={"answer": "paid"}).status_code == 200
+    sent = client.get("/api/m2m", headers=ha).json()["sent"]
+    assert sent[0]["status"] == "answered" and "Paid" in sent[0]["answer"]
+    assert client.post("/api/m2m/send", headers=ha, json={"to": 999999, "kind": "ask", "text": "hello there"}).status_code == 400

@@ -47,7 +47,7 @@ class Settings:
     sos_template: str = field(default_factory=lambda: _env("SOS_TEMPLATE", "mindy_sos"))
     login_template: str = field(default_factory=lambda: _env("LOGIN_TEMPLATE", "mindy_login_code"))
     app_url: str = field(default_factory=lambda: _env("APP_URL", "https://app.whatsonyourmind.online"))
-    public_wa_number: str = field(default_factory=lambda: _env("PUBLIC_WA_NUMBER", "447700900000"))
+    public_wa_number: str = field(default_factory=lambda: _env("PUBLIC_WA_NUMBER", "447391325727"))
     public_ig_handle: str = field(default_factory=lambda: _env("PUBLIC_IG_HANDLE", "whatsonyourmind"))
     webapp_dir: str = field(default_factory=lambda: _env("WEBAPP_DIR", ""))
 

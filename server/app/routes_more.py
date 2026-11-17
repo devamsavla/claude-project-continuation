@@ -257,6 +257,64 @@ def make_more_router(db: DB, mindy) -> APIRouter:
         s = money.summary(db, me)
         return {**s, "cur": countries.for_user(db, me).get("cur") or ""}
 
+    # ------------------------------------------------------------ Mindy-to-Mindy in the app
+    async def _notify(res):
+        from .handlers import deliver
+        for uid, body, btns in res.get("notify") or []:
+            await deliver(db, uid, body, btns, settings.reminder_template, [re.sub(r"[*_]", "", body)[:900]], title="Mindy", url="/#people")
+
+    @r.get("/api/m2m")
+    def m2m_home(me=Depends(me_dep)):
+        from . import m2m
+        from urllib.parse import quote
+        names = {p["id"]: p["name"] for p in m2m.linked(db, me["id"])}
+        who = lambda uid: names.get(uid) or (db.one("SELECT name FROM users WHERE id=?", (uid,)) or {}).get("name") or "Someone"
+        inbox = [{"id": x["id"], "from": who(x["from_uid"]), "kind": x["kind"], "text": x["text"],
+                  "taps": [{"value": a, "label": l} for a, l in m2m.KINDS[x["kind"]]]}
+                 for x in db.q("SELECT * FROM m2m WHERE to_uid=? AND status='open' ORDER BY id DESC LIMIT 20", (me["id"],))]
+        sent = [{"id": x["id"], "to": who(x["to_uid"]), "kind": x["kind"], "text": x["text"], "status": x["status"],
+                 "answer": dict(m2m.KINDS[x["kind"]]).get(x["answer"]) if x["answer"] else None}
+                for x in db.q("SELECT * FROM m2m WHERE from_uid=? ORDER BY id DESC LIMIT 15", (me["id"],))]
+        link = f"https://wa.me/{settings.public_wa_number}?text=" + quote(f"Hi Mindy! join {m2m.invite_code(db, me['id'])}")
+        return {"people": [{"id": i, "name": n} for i, n in names.items()], "inbox": inbox, "sent": sent, "link": link, "handled": m2m.handled(db, me)}
+
+    @r.post("/api/m2m/send")
+    async def m2m_send(b: Body, me=Depends(me_dep)):
+        from . import m2m
+        x = b.model_extra or {}
+        to = next((p for p in m2m.linked(db, me["id"]) if p["id"] == x.get("to")), None)
+        kind = x.get("kind")
+        if not to or kind not in m2m.KINDS:
+            raise HTTPException(400, "Pick one of your people.")
+        text = str(x.get("text", "")).strip()[:200]
+        amount = None
+        if kind == "money":
+            try:
+                amount = float(x.get("amount"))
+            except (TypeError, ValueError):
+                raise HTTPException(400, "How much?")
+            text = countries.money(countries.for_user(db, me), amount) + (f" for {text}" if text else "")
+        elif kind == "ask":
+            if len(text) < 3:
+                raise HTTPException(400, "What should I ask?")
+            text = text[0].upper() + text[1:].rstrip("?") + "?"
+        elif kind == "decline":
+            text = f"{me.get('name') or 'They'} can't make it" + (f" to {text}" if text else "") + ", and is sorry to miss it."
+        res = m2m.send(db, me, to, kind, text, amount)
+        await _notify(res)
+        return {"reply": res["text"]}
+
+    @r.post("/api/m2m/{mid}/answer")
+    async def m2m_answer(mid: int, b: Body, me=Depends(me_dep)):
+        from . import m2m
+        row = db.one("SELECT kind FROM m2m WHERE id=? AND to_uid=?", (mid, me["id"]))
+        ans = str((b.model_extra or {}).get("answer", ""))
+        if not row or ans not in dict(m2m.KINDS[row["kind"]]):
+            raise HTTPException(404)
+        res = m2m.on_button(db, me, f"m2m:{mid}:{ans}")
+        await _notify(res)
+        return {"reply": res["text"]}
+
     @r.get("/api/brain")
     def brain(me=Depends(me_dep)):
         return more.brain_score(db, me)

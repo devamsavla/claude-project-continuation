@@ -7,11 +7,11 @@ export const Route = createFileRoute("/instagram")({
   head: () =>
     siteHead(
       {
-        title: "Mindy on Instagram",
+        title: "Mindy on Instagram · whatsonyourmind",
         description:
-          "Share any reel or post to @whatsonyourmind. Recipes become shopping lists, places become plans.",
+          "Share a reel to Mindy and it becomes a recipe, a place or a plan, with a reminder to actually do it.",
       },
-      "site",
+      "home",
     ),
   component: () => <SitePage html={html} interactive={true} />,
 });
