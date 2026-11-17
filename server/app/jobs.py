@@ -125,7 +125,17 @@ async def on_this_day(db: DB, now: datetime | None = None):
         await _deliver(db, it["user_id"], f"🕰️ *On this day last year* you saved:\n{it['text'][:300]}", [], None, [], now, title="🕰️ On this day")
 
 
+async def weekly_handled(db: DB, now: datetime | None = None):
+    """Sunday: the receipt of what Mindy handled this week. Free channels only."""
+    from . import m2m
+    for u in db.q("SELECT * FROM users"):
+        h = m2m.handled(db, u)
+        if h["total"] >= 3:
+            await _deliver(db, u["id"], m2m.handled_text(db, u), [], None, [], now, title="🧾 Handled for you", url="/#now")
+
+
 def add_jobs(scheduler, db: DB):
+    scheduler.add_job(weekly_handled, "cron", day_of_week="sun", hour=12, minute=5, args=[db], id="handled")
     scheduler.add_job(safety_check, "interval", seconds=60, args=[db], id="safety", max_instances=1, coalesce=True)
     scheduler.add_job(ok_daily, "interval", minutes=15, args=[db], id="okdaily", max_instances=1, coalesce=True)
     scheduler.add_job(capsules, "interval", hours=1, args=[db], id="capsules", max_instances=1, coalesce=True)

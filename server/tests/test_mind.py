@@ -269,3 +269,43 @@ def test_whatsapp_flow_submission_adds_person():
         "response_json": json.dumps({"flow": "person", "name": "Nani", "relation": "grandparent", "birthday": "1950-04-04", "gifts": "shawls"})}}}, None))
     assert any("Nani" in body(m) for m in wa.outbox)
     assert mind.tree(db, user_of(ext)["id"])[0]["birthday"] == "04-04"
+
+
+def test_mindy_to_mindy():
+    from app import m2m
+    a, b = "447700900310", "447700900311"
+    send(a, "hi", name="Devam")
+    send(b, "hi", name="Rahul")
+    ua, ub = user_of(a), user_of(b)
+    # not linked yet: the ask becomes a forwardable invite
+    out = send(a, "ask Rahul for 500 for dinner")
+    assert "doesn't have a Mindy yet" in out and "wa.me" in out
+    code = m2m.invite_code(db, ua["id"])
+    out = send(b, f"Hi Mindy! join {code}")
+    assert "linked" in out
+    assert "Rahul" in send(a, "my people")
+    # money: Devam's Mindy asks Rahul's Mindy; Rahul taps; the answer comes back
+    wa.outbox.clear()
+    out = send(a, "ask Rahul for 500 for dinner")
+    assert "asked Rahul's Mindy" in out
+    got = [m for m in wa.outbox if m.get("to") == b]
+    assert got and "Devam's Mindy here" in body(got[0]) and "£500 for dinner" in body(got[0])
+    mid = db.one("SELECT id FROM m2m WHERE from_uid=? ORDER BY id DESC", (ua["id"],))["id"]
+    wa.outbox.clear()
+    tap(b, f"m2m:{mid}:tomorrow")
+    back = [body(m) for m in wa.outbox if m.get("to") == a]
+    assert back and "tomorrow" in back[0]
+    assert "Already answered" in tap(b, f"m2m:{mid}:paid")
+    # a question, a check-in and a polite no
+    wa.outbox.clear()
+    send(a, "ask Rahul if he's free Saturday")
+    assert any("Are you free Saturday?" in body(m) for m in wa.outbox if m.get("to") == b)
+    assert "Checking with Rahul's Mindy" in send(a, "is Rahul ok?")
+    assert "so you don't have to" in send(a, "tell Rahul I can't make it to the party")
+    # mute, and the weekly receipt
+    assert "can't send you requests" in send(b, "mute Devam")
+    assert "paused requests" in send(a, "ask Rahul for 100")
+    assert "awkward conversations had for you" in send(a, "what did you handle for me?")
+    # things that must not be hijacked
+    assert "Mindy here" not in send(a, "remind me to call mum at 5pm")
+    assert "I'll check on you" in send(a, "check on me")

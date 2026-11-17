@@ -12,7 +12,7 @@ from datetime import date, datetime, timedelta, timezone
 from urllib.parse import quote, quote_plus, urlencode
 from zoneinfo import ZoneInfo
 
-from . import care, countries, llm, mind, money, skills
+from . import care, countries, llm, m2m, mind, money, skills
 from .config import settings
 from .db import DB, now_iso
 
@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS tryon_use(user_id INTEGER, day TEXT, n INTEGER, PRIMA
 def init(db: DB):
     mind.init(db)
     money.init(db)
+    m2m.init(db)
     with db.lock:
         db.conn.executescript(SCHEMA)
         have = {r[1] for r in db.conn.execute("PRAGMA table_info(users)").fetchall()}
@@ -697,8 +698,14 @@ def trips(user, text, db) -> dict | None:
 
 
 # ---------------------------------------------------------------- the dispatcher
+def mindy_to_mindy(user, text, db):
+    if re.match(r"^(what did you (handle|do)|handled|my week|what have you (handled|done))( for me)?( this week)?\??$", text.lower().strip()):
+        return R(m2m.handled_text(db, user), app=("See it in the app", "now"))
+    return m2m.handle(db, user, text)
+
+
 ORDER = [personalise, safety, habits, codeword, numbers, impersonation, human, screen_share, gifts, staff, business, vault,
-         subscription, wardrobe, little, loan_alert, trips]
+         subscription, wardrobe, little, mindy_to_mindy, loan_alert, trips]
 
 
 def handle(db: DB, user: dict, text: str, key: str | None = None) -> dict | None:
@@ -756,6 +763,8 @@ def on_button(db: DB, user: dict, bid: str) -> dict | None:
         body = (f"✅ {me} confirmed: it's really them." if ans == "yes"
                 else f"🚨 *{me} says it is NOT them.* Hang up / stop replying. Don't send money. Report it: forward the message to me and say *report*.")
         return R("Thank you. I've told them." if ans == "yes" else "Thank you. I've warned them it's a scam. 🛡️", notify=[(r["asker"], body, [])])
+    if bid.startswith("m2m:"):
+        return m2m.on_button(db, user, bid)
     if bid.startswith("flow:"):
         import json
         try:
