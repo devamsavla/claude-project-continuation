@@ -7,11 +7,11 @@ export const Route = createFileRoute("/whatsapp")({
   head: () =>
     siteHead(
       {
-        title: "Mindy on WhatsApp",
+        title: "Mindy on WhatsApp · whatsonyourmind",
         description:
-          "Save Mindy's number and send anything. Reminders, lists, birthdays and a memory that never forgets, right inside WhatsApp.",
+          "Mindy lives in WhatsApp. Say it in your own words or a voice note: ask a friend for money back, set reminders, check scams, look after family.",
       },
-      "site",
+      "home",
     ),
   component: () => <SitePage html={html} interactive={true} />,
 });
