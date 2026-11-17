@@ -7,11 +7,11 @@ export const Route = createFileRoute("/")({
   head: () =>
     siteHead(
       {
-        title: "whatsonyourmind",
+        title: "whatsonyourmind · Your Mindy talks to their Mindy",
         description:
-          "Just text Mindy on WhatsApp: save anything, find it in plain words, get reminders in any time zone. Then the free Mindy app for friends, plans and games.",
+          "Everyone gets their own Mindy on WhatsApp. Your Mindy talks to their Mindy, so you never have to ask for money back, chase a plan or nag your mum yourself.",
       },
-      "site",
+      "home",
     ),
   component: () => <SitePage html={html} interactive={true} />,
 });
