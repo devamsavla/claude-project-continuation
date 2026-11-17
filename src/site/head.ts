@@ -1,10 +1,11 @@
 import siteCss from "./site.css?url";
 import legalCss from "./legal.css?url";
+import homeCss from "./home.css?url";
 
 type PageMeta = { title: string; description: string };
 
 /** Per-page head tags, matching the original site's titles and descriptions. */
-export function siteHead({ title, description }: PageMeta, kind: "site" | "legal" = "site") {
+export function siteHead({ title, description }: PageMeta, kind: "site" | "legal" | "home" = "site") {
   return {
     meta: [
       { title },
@@ -16,6 +17,6 @@ export function siteHead({ title, description }: PageMeta, kind: "site" | "legal
       { name: "twitter:title", content: title },
       { name: "twitter:description", content: description },
     ],
-    links: [{ rel: "stylesheet", href: kind === "site" ? siteCss : legalCss }],
+    links: [{ rel: "stylesheet", href: kind === "home" ? homeCss : kind === "site" ? siteCss : legalCss }],
   };
 }

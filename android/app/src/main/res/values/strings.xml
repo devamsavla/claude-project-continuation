@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Mindy Helper</string>
+    <string name="service_label">Mindy Helper</string>
+    <string name="service_desc">Mindy helps you use any app. Press the Mindy bubble and say what you want to do. Mindy reads the buttons on your screen, points to the next one and says what to do, in your language. It never reads or types your PIN, OTP or passwords, and it never presses pay buttons for you.</string>
+</resources>

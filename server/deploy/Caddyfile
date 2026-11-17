@@ -1,0 +1,4 @@
+api.whatsonyourmind.online, app.whatsonyourmind.online {
+	encode gzip
+	reverse_proxy mindy:8000
+}

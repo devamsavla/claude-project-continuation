@@ -5,10 +5,12 @@ _Last updated: 12 Nov 2026._ Keep this file current: update it at the end of eve
 ## TL;DR for the next builder
 
 1. Stage 1 (website + design tour + waitlist) is **done and verified**.
-2. Prices and plans on the site are **approved by the founder** and locked by tests (`src/test/prices.test.ts`).
-3. Next job is **Stage 2: the real Mindy web app at `/mindy`** — port the Python/vanilla-JS app in
-   [`legacy/claude-launch-kit/backend`](../legacy/claude-launch-kit/README.md) to this stack. Sub-steps 2a–2g are in [roadmap.md](../roadmap.md).
-4. Read [PRODUCT.md](PRODUCT.md) before touching copy, prices or flows, and [AGENTS.md](../AGENTS.md) before touching code.
+2. **Decision 14 Nov 2026:** instead of porting the app to the Lovable stack, ship the working Python server.
+   It now lives in **`server/`** and serves the real Mindy app + WhatsApp + Instagram + Telegram. The website's
+   "Open the app" points at `https://app.whatsonyourmind.online` (`src/site/config.ts`).
+3. Mindy became **one tech friend for everything** (see [VISION.md](VISION.md)): saves → real plans, family care,
+   khata with UPI links, scam shield, do-it-for-me links (Uber, Maps, UPI), screenshot help, study help, file tools, Telegram.
+4. Next: **deploy** (server/DEPLOY.md, Azure for Students), connect WhatsApp, then the native Android helper (Layer 2).
 
 ## Where it came from
 
@@ -75,6 +77,24 @@ The founder expects a traffic spike at launch. Every feature must:
 | "We never sell your data"                                               | home page copy                          | A promise — keep only if intended                        |
 | Meta (WhatsApp/Instagram) app credentials                               | Lovable Cloud secrets                   | Needed for Stage 3                                       |
 
+## Done on 14 Nov 2026 (server/)
+
+- [x] Cheapest AI: rules first, then any OpenAI-compatible model (default Gemini 2.5 Flash-Lite), cache + per-person daily budget (`llm.py`)
+- [x] Saves → real life: classify every save, one-tap actions, friend matches, Saved→Done score + streak (`hooks.py`)
+- [x] Family care: family codes (also by WhatsApp "family 123456"), care reminders, "I took it" button or reply "took", missed-dose alerts, simple mode (`care.py`)
+- [x] Khata with UPI pay links; do-it links (Uber, Maps, UPI, call, WhatsApp); scam shield with link checks + community reports; screenshot help with circles; homework help; privacy check-up; file tools (ffmpeg) (`skills.py`)
+- [x] Telegram channel (free reminders, open chat, forwarded posts saved) (`telegram.py`)
+- [x] Google sign-in (works before Meta approval)
+- [x] Tests: 31 pytest (incl. multi-person live sockets, care loop, khata, scam, Telegram, file tools) + two-browser Playwright runs
+- [x] Deploy kit: Dockerfile with ffmpeg, docker-compose + Caddy (auto HTTPS), one-script setup for Azure for Students
+
+## Done later on 14 Nov 2026
+
+- [x] WhatsApp moments: "where's my car" (pin + walking route + Street View + your photo), "take me home", home/office places, read-this-letter, voice notes understood (`places.py`)
+- [x] Mindy buttons: personal one-tap home-screen buttons (I parked here, Where's my car, Take me home, SOS to family) at `/b/<key>/<action>`
+- [x] **Android helper app** (`android/`): floating Mindy bubble, voice in Hindi/English, reads screen buttons as text, pulsing pointer + spoken step, opens apps at the right screen, "do it for me" mode, never touches PIN/OTP or pay buttons, "I'm stuck" alerts family. Server brain: `server/app/helper.py` (tested). APK builds in GitHub Actions (`.github/workflows/android.yml`) — **not compiled yet**: the first CI run is the compile check
+- [x] Pitch deck "Just tell Mindy" (moments, not features), made in Claude
+
 ## Session log
 
 | Date        | Work                                                                                                               |
@@ -82,3 +102,4 @@ The founder expects a traffic spike at launch. Every feature must:
 | 11 Nov 2026 | Migrated Stage 1 website, design tour and waitlist; verified pixel match                                           |
 | 11 Nov 2026 | Agreed Stage 2 decisions, Simple mode scope, business model; raised prices; added plans and income streams to site |
 | 12 Nov 2026 | Organised repo for hand-off: README, docs/, legacy reference folder, this report                                   |
+| 14 Nov 2026 | Shipped server/ (real app + bots), tech-friend features, Telegram, Google sign-in, deploy kit; site points to the app |

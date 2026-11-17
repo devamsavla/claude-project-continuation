@@ -1,0 +1,54 @@
+services:
+  - type: web
+    name: whatsonyourmind-api
+    runtime: docker
+    rootDir: server
+    plan: starter
+    healthCheckPath: /health
+    disk:
+      name: mindy-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: WA_TOKEN
+        sync: false
+      - key: WA_PHONE_NUMBER_ID
+        sync: false
+      - key: WA_APP_SECRET
+        sync: false
+      - key: WA_VERIFY_TOKEN
+        generateValue: true
+      - key: IG_TOKEN
+        sync: false
+      - key: IG_USER_ID
+        sync: false
+      - key: IG_APP_SECRET
+        sync: false
+      - key: IG_VERIFY_TOKEN
+        generateValue: true
+      - key: LLM_API_KEY
+        sync: false
+      - key: LLM_MODEL
+        value: gemini-2.5-flash-lite
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_WEBHOOK_SECRET
+        generateValue: true
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: ALLOWED_ORIGINS
+        value: https://whatsonyourmind.online,https://www.whatsonyourmind.online,https://app.whatsonyourmind.online
+      - key: APP_URL
+        value: https://app.whatsonyourmind.online
+      - key: PUBLIC_WA_NUMBER
+        sync: false
+      - key: PUBLIC_IG_HANDLE
+        value: whatsonyourmind
+      - key: LOGIN_TEMPLATE
+        value: mindy_login_code
+      - key: VAPID_SUBJECT
+        value: mailto:hello@whatsonyourmind.online
+      - key: DEV_CODES
+        value: "0"
+      - key: ADMIN_KEY
+        generateValue: true
