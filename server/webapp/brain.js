@@ -232,6 +232,39 @@ V.money = async function (v) {
       : `<div class="sticker"><h3>Send your statement to Mindy</h3><p>Export a CSV or PDF from your bank app and send it to Mindy on WhatsApp with the word <b>statement</b>. Mindy keeps only dates, amounts and shop names, and deletes the file.</p></div>`}`;
 };
 
+// ---------------------------------------------------------------- People: your Mindy talks to their Mindy
+V.people = async function (v) {
+  const { esc, api, toast } = M();
+  let D; try { D = await api("/m2m"); } catch (e) { v.innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
+  const KIND = { money: "💸", ask: "💬", safe: "💚", decline: "💌" };
+  v.innerHTML = `<header class="top"><div><div class="eyebrow g">Mindy to Mindy</div><h1 class="big">Your <i>people</i></h1>
+      <div class="small muted">Your Mindy talks to their Mindy, so you don't have to.</div></div><button class="btn sm g" data-b="link">+ Link</button></header>
+    ${D.inbox.length ? `<h2 class="sec"><span>Waiting for you · ${D.inbox.length}</span></h2>` + D.inbox.map(x => `<div class="sticker" data-in="${x.id}"><div class="eyebrow">${esc(x.from)}'s Mindy asks</div>
+      <h3 style="margin:6px 0 12px">${KIND[x.kind]} ${esc(x.text || "Are you OK?")}</h3><div class="row" style="flex-wrap:wrap;gap:8px">${x.taps.map(t => `<button class="btn sm dark" data-ans="${t.value}">${esc(t.label)}</button>`).join("")}</div></div>`).join("") : ""}
+    <h2 class="sec"><span>Linked · ${D.people.length}</span></h2>
+    ${D.people.length ? D.people.map(p => `<div class="card" data-p="${p.id}"><b style="font-size:18px">${esc(p.name || "Friend")}</b>
+      <div class="row" style="flex-wrap:wrap;gap:8px;margin-top:10px"><button class="btn sm" data-k="money">💸 Ask for money</button><button class="btn sm" data-k="ask">💬 Ask something</button>
+      <button class="btn sm" data-k="safe">💚 Check in</button><button class="btn sm ghost" data-k="decline">💌 Can't make it</button></div></div>`).join("")
+      : `<div class="sticker"><h3>Link your first person</h3><p>Send them your link. The moment they tap it, your Mindys can talk: money, plans, check-ins, all in taps.</p><button class="btn dark" data-b="link" style="margin-top:12px">Share my link</button></div>`}
+    ${D.sent.length ? `<h2 class="sec"><span>Asked for you</span></h2><div class="card">` + D.sent.map(x => `<div class="list-item"><div class="grow">${KIND[x.kind]} <b>${esc(x.to)}</b> <span class="muted">${esc(x.text || "check-in")}</span></div>
+      <span class="small ${x.answer ? "" : "muted"}">${x.answer ? esc(x.answer) : "waiting…"}</span></div>`).join("") + `</div>` : ""}
+    ${D.handled.rows.length ? `<h2 class="sec"><span>Handled for you this week</span></h2><div class="card">` + D.handled.rows.map(r => `<div class="list-item"><div class="grow">${r.icon} ${esc(r.label)}</div><b>${r.n}</b></div>`).join("") + `</div>` : ""}`;
+  v.querySelectorAll("[data-b=link]").forEach(b => b.onclick = async () => {
+    const text = "Get your own Mindy and link with me: " + D.link;
+    try { if (navigator.share) await navigator.share({ text }); else { await navigator.clipboard.writeText(text); toast("Link copied. Send it to anyone."); } } catch (_) {}
+  });
+  v.querySelectorAll("[data-in]").forEach(card => card.querySelectorAll("[data-ans]").forEach(b => b.onclick = async () => {
+    try { const r = await api(`/m2m/${card.dataset.in}/answer`, { body: { answer: b.dataset.ans } }); toast(r.reply); V.people(v); } catch (e) { toast(e.message); }
+  }));
+  v.querySelectorAll("[data-p]").forEach(card => card.querySelectorAll("[data-k]").forEach(b => b.onclick = async () => {
+    const kind = b.dataset.k, body = { to: Number(card.dataset.p), kind };
+    if (kind === "money") { const a = prompt("How much?"); if (!a) return; body.amount = a.replace(/[^\d.]/g, ""); body.text = prompt("What for? (optional)") || ""; }
+    if (kind === "ask") { body.text = prompt("What should I ask them?"); if (!body.text) return; }
+    if (kind === "decline") { body.text = prompt("Can't make it to what? (optional)") || ""; }
+    try { const r = await api("/m2m/send", { body }); toast(r.reply.replace(/\*/g, "")); V.people(v); } catch (e) { toast(e.message); }
+  }));
+};
+
 // ---------------------------------------------------------------- the brain card on Now
 const prevNow = V.nowCards;
 V.nowCards = function (H) {
@@ -241,7 +274,9 @@ V.nowCards = function (H) {
     try { const b = await M().api("/brain");
       el.innerHTML = `<a href="#brain" class="card" style="display:flex;align-items:center;gap:14px;text-decoration:none"><div style="font-size:34px">🧠</div>
         <div class="grow"><div class="eyebrow g">Brain score</div><b style="font-size:24px">${b.score}</b> <span class="small muted">${M().esc(b.level)}</span>
-        ${b.next ? `<div class="small muted">💭 ${M().esc(b.next.q)}</div>` : ""}</div><span class="muted">→</span></a>`;
+        ${b.next ? `<div class="small muted">💭 ${M().esc(b.next.q)}</div>` : ""}</div><span class="muted">→</span></a>`
+        + `<a href="#people" class="card" style="display:flex;align-items:center;gap:14px;text-decoration:none"><div style="font-size:34px">🤝</div>
+        <div class="grow"><div class="eyebrow g">Mindy to Mindy</div><b>Your people</b><div class="small muted">Ask for money, make plans, check in. In taps.</div></div><span class="muted">→</span></a>`;
     } catch (_) { el.remove(); }
   }, 0);
   return `<div id="braincard"></div>` + html;
