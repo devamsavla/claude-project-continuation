@@ -189,6 +189,15 @@ def store_media(data: bytes, ext: str, keep: bool = False) -> str:
     return f"{settings.app_url.rstrip('/')}/media/{name}"
 
 
+def delete_media(url: str):
+    name = url.rsplit("/media/", 1)[-1]
+    if re.match(r"^[\w\-.]+$", name):
+        try:
+            os.remove(os.path.join(MEDIA_DIR, name))
+        except OSError:
+            pass
+
+
 def read_media(url: str) -> bytes | None:
     """Reads back a file stored with store_media (by its public URL)."""
     name = url.rsplit("/media/", 1)[-1]

@@ -140,7 +140,7 @@ V.brain = async function (v) {
 async function shareCard() {
   const { api, S, toast } = M();
   const me = await api("/me/key").catch(() => null);
-  const key = me && me.button_key;
+  const key = me && me.share_key;
   const url = key ? `${location.origin}/s/${key}` : location.origin;
   try {
     if (key && navigator.canShare) {

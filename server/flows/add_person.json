@@ -1,23 +1,98 @@
 {
-  "version": "6.0",
+  "version": "7.2",
   "screens": [
     {
       "id": "PERSON",
       "title": "Add to your family tree",
       "terminal": true,
+      "data": {},
       "layout": {
         "type": "SingleColumnLayout",
         "children": [
-          {"type": "TextHeading", "text": "Who should Mindy remember?"},
-          {"type": "TextInput", "name": "name", "label": "Name", "required": true},
-          {"type": "Dropdown", "name": "relation", "label": "They are your…", "required": false, "data-source": [
-            {"id": "mother", "title": "Mother"}, {"id": "father", "title": "Father"}, {"id": "partner", "title": "Partner"},
-            {"id": "child", "title": "Child"}, {"id": "sibling", "title": "Brother / Sister"}, {"id": "grandparent", "title": "Grandparent"},
-            {"id": "friend", "title": "Friend"}, {"id": "other", "title": "Someone else"}]},
-          {"type": "DatePicker", "name": "birthday", "label": "Birthday (any year is fine)", "required": false},
-          {"type": "TextInput", "name": "gifts", "label": "What they love (for gift ideas)", "required": false},
-          {"type": "Footer", "label": "Add to my tree", "on-click-action": {"name": "complete", "payload": {
-            "flow": "person", "name": "${form.name}", "relation": "${form.relation}", "birthday": "${form.birthday}", "gifts": "${form.gifts}"}}}
+          {
+            "type": "Form",
+            "name": "person_form",
+            "children": [
+              {
+                "type": "TextHeading",
+                "text": "Who should Mindy remember?"
+              },
+              {
+                "type": "TextInput",
+                "name": "name",
+                "label": "Name",
+                "input-type": "text",
+                "required": true
+              },
+              {
+                "type": "Dropdown",
+                "name": "relation",
+                "label": "They are your…",
+                "required": false,
+                "data-source": [
+                  {
+                    "id": "mother",
+                    "title": "Mother"
+                  },
+                  {
+                    "id": "father",
+                    "title": "Father"
+                  },
+                  {
+                    "id": "partner",
+                    "title": "Partner"
+                  },
+                  {
+                    "id": "child",
+                    "title": "Child"
+                  },
+                  {
+                    "id": "sibling",
+                    "title": "Brother / Sister"
+                  },
+                  {
+                    "id": "grandparent",
+                    "title": "Grandparent"
+                  },
+                  {
+                    "id": "friend",
+                    "title": "Friend"
+                  },
+                  {
+                    "id": "other",
+                    "title": "Someone else"
+                  }
+                ]
+              },
+              {
+                "type": "DatePicker",
+                "name": "birthday",
+                "label": "Birthday (any year is fine)",
+                "required": false
+              },
+              {
+                "type": "TextInput",
+                "name": "gifts",
+                "label": "What they love (for gift ideas)",
+                "input-type": "text",
+                "required": false
+              },
+              {
+                "type": "Footer",
+                "label": "Add to my tree",
+                "on-click-action": {
+                  "name": "complete",
+                  "payload": {
+                    "flow": "person",
+                    "name": "${form.name}",
+                    "relation": "${form.relation}",
+                    "birthday": "${form.birthday}",
+                    "gifts": "${form.gifts}"
+                  }
+                }
+              }
+            ]
+          }
         ]
       }
     }

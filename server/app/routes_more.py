@@ -1,6 +1,7 @@
 """Routes for the newer skills: magic links, calendar feed, email-in, the SMS gateway phone, the clipboard,
 "your mind" (questions, facts, family tree, habits), Brain Score cards, public number check, and the admin queues."""
 import asyncio
+import hmac
 import io
 import json
 import re
@@ -23,6 +24,29 @@ class Body(BaseModel):
 
 def _user_by_key(db: DB, key: str) -> dict:
     u = db.one("SELECT * FROM users WHERE button_key=?", (key,)) if re.match(r"^[\w-]{6,40}$", key or "") else None
+    if not u:
+        raise HTTPException(404)
+    return u
+
+
+def share_key(db: DB, uid: int) -> str:
+    """A public key for the shareable Brain Score card. Separate from the private key behind calendar, clipboard and email."""
+    import secrets as _s
+    with db.lock:
+        if "share_key" not in {r[1] for r in db.conn.execute("PRAGMA table_info(users)").fetchall()}:
+            db.conn.execute("ALTER TABLE users ADD COLUMN share_key TEXT")
+            db.conn.commit()
+    row = db.one("SELECT share_key FROM users WHERE id=?", (uid,))
+    if row and row.get("share_key"):
+        return row["share_key"]
+    k = _s.token_urlsafe(8)
+    db.x("UPDATE users SET share_key=? WHERE id=?", (k, uid))
+    return k
+
+
+def _user_by_share(db: DB, key: str) -> dict:
+    share_key(db, 0)  # makes sure the column exists
+    u = db.one("SELECT * FROM users WHERE share_key=?", (key,)) if re.match(r"^[\w-]{6,40}$", key or "") else None
     if not u:
         raise HTTPException(404)
     return u
@@ -60,7 +84,7 @@ def make_more_router(db: DB, mindy) -> APIRouter:
     # ------------------------------------------------------------ email in (Cloudflare Email Routing worker posts here)
     @r.post("/webhook/email")
     async def email_in(request: Request):
-        if request.headers.get("X-Mindy-Secret") != settings.email_secret:
+        if not settings.secret_ok(settings.email_secret) or not hmac.compare_digest(request.headers.get("X-Mindy-Secret") or "", settings.email_secret):
             raise HTTPException(401)
         b = await request.json()
         key = (b.get("to") or "").split("@")[0].strip().lower()
@@ -81,7 +105,7 @@ def make_more_router(db: DB, mindy) -> APIRouter:
 
     # ------------------------------------------------------------ the SMS gateway phone (missed calls and SMS for basic phones)
     def _gw(request: Request):
-        if request.headers.get("X-Gateway-Secret") != settings.gateway_secret:
+        if not settings.secret_ok(settings.gateway_secret) or not hmac.compare_digest(request.headers.get("X-Gateway-Secret") or "", settings.gateway_secret):
             raise HTTPException(401)
 
     @r.post("/api/gateway/missed")
@@ -243,13 +267,16 @@ def make_more_router(db: DB, mindy) -> APIRouter:
         if "pay_link" in x and re.match(r"^https://\S{4,200}$", str(x["pay_link"]) or ""):
             db.x("UPDATE users SET pay_link=? WHERE id=?", (x["pay_link"], me["id"]))
         if x.get("delete_photo"):
+            ph = (db.one("SELECT photo FROM users WHERE id=?", (me["id"],)) or {}).get("photo")
+            if ph:
+                skills.delete_media(ph)
             db.x("UPDATE users SET photo=NULL WHERE id=?", (me["id"],))
         u = db.one("SELECT * FROM users WHERE id=?", (me["id"],))
         return {"name": more.mindy_name(u), "hue": u.get("mindy_hue"), "persona": u.get("persona"), "lang": u.get("lang") or "en"}
 
     @r.get("/api/me/key")
     def my_key(me=Depends(me_dep)):
-        return {"button_key": mindy.button_key(me)}
+        return {"button_key": mindy.button_key(me), "share_key": share_key(db, me["id"])}
 
     @r.get("/api/money")
     def money_summary(me=Depends(me_dep)):
@@ -345,14 +372,14 @@ def make_more_router(db: DB, mindy) -> APIRouter:
     # ------------------------------------------------------------ Brain Score share card (an image for Stories) and its page
     @r.get("/card/{key}.png")
     def card(key: str):
-        u = _user_by_key(db, key)
+        u = _user_by_share(db, key)
         s = more.brain_score(db, u)
         return Response(_card_png(s["score"], s["level"], more.mindy_name(u), u.get("mindy_hue")), media_type="image/png",
                         headers={"Cache-Control": "public, max-age=600"})
 
     @r.get("/s/{key}", response_class=HTMLResponse)
     def share_page(key: str):
-        u = _user_by_key(db, key)
+        u = _user_by_share(db, key)
         s = more.brain_score(db, u)
         img = f"{settings.app_url.rstrip('/')}/card/{key}.png"
         wa = f"https://wa.me/{settings.public_wa_number}?text=" + "Hi%20Mindy"
@@ -375,7 +402,7 @@ img{{width:min(360px,90vw);border-radius:24px}}a{{display:inline-block;margin-to
 
     # ------------------------------------------------------------ admin queues: human helpers, business verification, official handles
     def _admin(key):
-        if key != settings.admin_key:
+        if not settings.secret_ok(settings.admin_key) or not hmac.compare_digest(str(key or ""), settings.admin_key):
             raise HTTPException(403)
 
     @r.get("/admin/queue")

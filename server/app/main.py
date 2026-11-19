@@ -157,7 +157,8 @@ async def receive_instagram(request: Request, background: BackgroundTasks):
 # ---------------------------------------------------------------- Telegram webhook
 @app.post("/webhook/telegram")
 async def receive_telegram(request: Request, background: BackgroundTasks):
-    if request.headers.get("X-Telegram-Bot-Api-Secret-Token") != settings.tg_secret:
+    import hmac as _h
+    if not settings.secret_ok(settings.tg_secret) or not _h.compare_digest(request.headers.get("X-Telegram-Bot-Api-Secret-Token") or "", settings.tg_secret):
         raise HTTPException(401, "Bad secret")
     update = await request.json()
     msg, name = tg_normalise(update)
@@ -305,7 +306,7 @@ def waitlist(s: Signup):
 # ---------------------------------------------------------------- admin
 @app.get("/admin/stats")
 def stats(key: str):
-    if key != settings.admin_key:
+    if not settings.secret_ok(settings.admin_key) or not __import__("hmac").compare_digest(str(key or ""), settings.admin_key):
         raise HTTPException(403)
     n = lambda sql: db.one(sql)["n"]
     return {"users": n("SELECT COUNT(*) n FROM users"), "items": n("SELECT COUNT(*) n FROM items"),
@@ -324,7 +325,7 @@ def stats(key: str):
 @app.get("/admin", response_class=HTMLResponse)
 def admin_page(key: str):
     """A one-page dashboard for you: numbers and the latest waitlist sign-ups."""
-    if key != settings.admin_key:
+    if not settings.secret_ok(settings.admin_key) or not __import__("hmac").compare_digest(str(key or ""), settings.admin_key):
         raise HTTPException(403)
     s = stats(key)
     wl = db.q("SELECT email, interest, source, created_at FROM waitlist ORDER BY id DESC LIMIT 100")

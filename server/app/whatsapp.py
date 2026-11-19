@@ -18,7 +18,10 @@ def verify_signature(raw_body: bytes, header: str | None, secret: str | None = N
     """Meta signs every webhook POST with X-Hub-Signature-256 = sha256=HMAC(app_secret, body)."""
     secret = settings.wa_app_secret if secret is None else secret
     if not secret:
-        return True  # dev mode: no secret configured
+        if settings.production:
+            log.error("Webhook rejected: app secret is not set (WA_APP_SECRET / IG_APP_SECRET). Set it to accept Meta's messages.")
+            return False
+        return True  # local dev: no secret configured
     if not header or not header.startswith("sha256="):
         return False
     expected = hmac.new(secret.encode(), raw_body, hashlib.sha256).hexdigest()
@@ -156,10 +159,12 @@ class WhatsApp:
         async with httpx.AsyncClient(timeout=30) as c:
             meta = (await c.get(f"{self.base}/{media_id}", headers=self._headers)).json()
             url, mime = meta.get("url"), meta.get("mime_type", "application/octet-stream")
-            if not url:
+            if not url or int(meta.get("file_size") or 0) > MAX_MEDIA:
                 return None, None
             r = await c.get(url, headers=self._headers)
-            return r.content, mime
+            return (r.content, mime) if len(r.content) <= MAX_MEDIA else (None, None)
 
+
+MAX_MEDIA = 25 * 1024 * 1024  # 25 MB: bigger files are ignored rather than filling the server
 
 wa = WhatsApp()
