@@ -12,7 +12,7 @@ from datetime import date, datetime, timedelta, timezone
 from urllib.parse import quote, quote_plus, urlencode
 from zoneinfo import ZoneInfo
 
-from . import care, countries, llm, m2m, mind, money, skills
+from . import care, countries, llm, m2m, mind, money, neurons, skills
 from .config import settings
 from .db import DB, now_iso
 
@@ -41,6 +41,7 @@ def init(db: DB):
     mind.init(db)
     money.init(db)
     m2m.init(db)
+    neurons.init(db)
     with db.lock:
         db.conn.executescript(SCHEMA)
         have = {r[1] for r in db.conn.execute("PRAGMA table_info(users)").fetchall()}
@@ -135,9 +136,13 @@ def brain_score(db: DB, user: dict) -> dict:
     scams = db.one("SELECT COUNT(*) n FROM scam_reports WHERE reporter=?", (uid,))["n"]                 # up to 100: protecting others
     people = len(m["people"])                                                                         # up to 100: people remembered
     kept = db.one("SELECT COUNT(*) n FROM reminders WHERE user_id=? AND status IN ('sent','done')", (uid,))["n"]  # up to 100
-    parts = {"knows you": round(fill * 400), "habits": min(150, streak * 15), "saves made real": min(150, done * 15),
-             "scams stopped": min(100, scams * 25), "people remembered": min(100, people * 10), "reminders kept": min(100, kept * 4)}
-    total = sum(parts.values())
+    mm = db.q("SELECT uses FROM neurons WHERE user_id=?", (uid,))
+    lit, wired = sum(1 for r in mm if r["uses"] >= 1), sum(1 for r in mm if r["uses"] >= 3)
+    # 1000 points: neurons lit and wired (up to 720), how well Mindy knows you (up to 160), and real life done (up to 120)
+    parts = {"neurons lit": lit * 10, "neurons wired": wired * 5, "knows you": round(fill * 160),
+             "streaks": min(40, streak * 4), "saves made real": min(30, done * 5), "scams stopped": min(20, scams * 10),
+             "people remembered": min(20, people * 2), "reminders kept": min(10, kept)}
+    total = min(1000, sum(parts.values()))
     level = next(l for t, l in ((900, "Legend"), (700, "Mastermind"), (500, "Sharp"), (300, "Switched on"), (120, "Warming up"), (0, "Just met")) if total >= t)
     return {"score": total, "level": level, "parts": parts, "next": mind._public_q(mind.next_question(db, uid, ignore_recent=True))}
 
@@ -807,8 +812,13 @@ def handle(db: DB, user: dict, text: str, key: str | None = None) -> dict | None
     except Exception:
         log.exception("draft_reply failed")
     low = text.lower().strip()
-    if low in ("menu", "m", "☰", "options", "portal", "start menu", "main menu"):
-        return R("☰ *Your Mindy*\nTap anything. No typing needed.", list=money.MENU)
+    if low in ("menu", "m", "☰", "options", "portal", "start menu", "main menu", "my mind", "mind", "the mind", "show my mind", "what can you do", "what else can you do", "mind map", "my brain", "brain"):
+        mp = neurons.mind_map(db, user)
+        rows = [(f"br:{b['id']}", f"{b['emoji']} {b['name']}"[:24], f"{b['lit']}/{len(b['nodes'])} lit · {b['line']}"[:72]) for b in mp["branches"]]
+        sp = mp["spark"]
+        head = f"🧠 *Your mind: {mp['lit']}/{mp['total']} neurons lit*" + (f"\n✨ Today's spark: {sp['emoji']} {sp['name']}" if sp else "")
+        return R(head + "\nTap a branch. Every dark neuron is one tap to try.", list=rows,
+                 buttons=[(f"nr:{sp['id']}", f"✨ Try {sp['name']}"[:20])] if sp else None, app=("Open your mind map", "brain"))
     if re.match(r"^(my )?(spend|spending|expenses|where did my money go|money summary)\b", low):
         return R(money.summary_text(db, user), app=("See the breakdown", "money"))
     if (re.match(r"^(itr|income tax|tax|taxes|tax return|file (my )?(itr|taxes|tax return)|self assessment|my (income|salary|ctc) is)\b", low)
@@ -872,6 +882,14 @@ def on_button(db: DB, user: dict, bid: str) -> dict | None:
         return None
     if bid.startswith("goal:"):
         return goal_checkin(db, user, int(bid[5:]))
+    if bid.startswith("br:"):
+        mp = neurons.mind_map(db, user)
+        b = next((x for x in mp["branches"] if x["id"] == bid[3:]), None)
+        if not b:
+            return None
+        mark = {"dark": "○", "sparked": "◐", "wired": "●"}
+        rows = [(f"nr:{n['id']}", f"{mark[n['state']]} {n['name']}"[:24], n["why"][:72]) for n in b["nodes"]]
+        return R(f"{b['emoji']} *{b['name']}* · {b['lit']}/{len(b['nodes'])} lit\n{b['line']}\n○ dark · ◐ sparked · ● wired", list=rows)
     if bid.startswith("menu:"):
         return _menu(db, user, bid[5:])
     if bid.startswith("cl:"):

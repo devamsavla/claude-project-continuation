@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo, available_timezones
 
 import re
 
-from . import brain, care, hooks, llm, more, places, skills
+from . import brain, care, countries, hooks, llm, more, neurons, places, skills
 from . import intent as semantic
 from .config import settings
 from .db import DB, now_iso
@@ -73,7 +73,8 @@ def tidy(text: str) -> str:
 
 
 COMMAND_WORDS = ["remind", "reminder", "check", "ask", "tell", "split", "paid", "lent", "owes", "gift", "wishlist", "staff", "carousel",
-                 "caption", "schemes", "language", "menu", "where", "kept", "safe", "subscriptions", "spending", "documents", "khata"]
+                 "caption", "schemes", "language", "menu", "where", "kept", "safe", "subscriptions", "spending", "documents", "khata",
+                 "mind", "brain", "kind", "find", "mine", "money", "family", "people", "memory", "papers", "create", "safety"]
 
 
 def fix_first_word(t: str) -> str:
@@ -164,7 +165,10 @@ class Mindy:
             client, to = _CONV.get()
             if links:
                 text += "".join(f"\n{l}: {u}" for l, u in links)
-            return await client.list_menu(to, await self._out(text), "Open", [tuple(x) for x in r["list"]][:10], "Mindy")
+            out = await client.list_menu(to, await self._out(text), "Open", [tuple(x) for x in r["list"]][:10], "Mindy")
+            if r.get("buttons"):
+                await self.ask("Or try today's spark:", r["buttons"])
+            return out
         if r.get("buttons"):
             if links:
                 text += "".join(f"\n{l}: {u}" for l, u in links)
@@ -215,7 +219,13 @@ class Mindy:
                 said = []
                 _SAID.set(said)
                 await self.on_text(user, body, mid, msg.get("share"))
-                self.fumble(user, body, said)
+                fumbled = self.fumble(user, body, said)
+                if not fumbled and not msg.get("share"):
+                    changed = neurons.fire(self.db, user["id"], neurons.detect(tidy(body)))
+                    if changed:
+                        note = neurons.milestone(changed, self.db, user["id"])
+                        if note:
+                            await self.say(note)
                 await self.maybe_ask(user)
             else:
                 await self.say("I can't open that type of message yet, but text, links, photos and documents all work.")
@@ -224,17 +234,43 @@ class Mindy:
             self.fumble(user, (msg.get("text") or {}).get("body") or mtype, [], f"error: {type(e).__name__}: {e}"[:300])
             await self.say("Sorry, something went wrong on my side. Try that again in a moment?")
 
+    async def try_node(self, user, node: str):
+        """One tap on a neuron: do it now (or preview it, if it would message someone else), then light it."""
+        n = neurons.NODES.get(node)
+        if not n:
+            return await self.say("👍")
+        kind, what = n["try"]
+        if kind == "demo":
+            from . import m2m
+            fr = (m2m.linked(self.db, user["id"]) or [{"name": None}])[0]["name"]
+            await self.say(neurons.demo_text(node, user, (fr or "").split(" ")[0] or None) + "\n\n_That's a preview. When it's real, just say it in your own words._")
+        elif what == "menu:lang":
+            await self.more_reply(more.R("🌍 Which language should I speak?", list=[("q:lang_pref:" + c, l, "") for c, l in
+                                   (("en", "English"), ("hi", "हिंदी"), ("hinglish", "Hinglish"), ("es", "Español"), ("ar", "العربية"),
+                                    ("pt", "Português"), ("fr", "Français"), ("bn", "বাংলা"), ("ta", "தமிழ்"), ("sw", "Kiswahili"))]))
+        elif what.startswith("menu:"):
+            r = await asyncio.to_thread(more.on_button, self.db, user, what)
+            if r:
+                await self.more_reply(r)
+        else:
+            await self.on_text(user, what, None)
+        changed = neurons.fire(self.db, user["id"], [node])
+        if changed:
+            await self.say(neurons.celebrate(changed, self.db, user["id"]).strip())
+
     def fumble(self, user, text: str, said: list, error: str | None = None):
         """Launch-week radar: remember messages Mindy probably didn't get (generic save, 'couldn't find', errors)."""
         try:
             first = said[0] if said else ""
             if not error and not (FUMBLE_RX.match(first) and len(text.split()) <= 14 and not brain.URL_RE.search(text)):
-                return
+                return False
             self.db.x("CREATE TABLE IF NOT EXISTS fumbles(id INTEGER PRIMARY KEY, user_id INTEGER, text TEXT, reply TEXT, kind TEXT, created_at TEXT)")
             self.db.x("INSERT INTO fumbles(user_id,text,reply,kind,created_at) VALUES(?,?,?,?,?)",
                       (user["id"], text[:500], (error or first)[:300], "error" if error else "unsure", now_iso()))
+            return True
         except Exception:
             log.exception("fumble log failed")
+            return False
 
     async def maybe_ask(self, user):
         """Mindy asks: one tap question at the end of a conversation the person started (free on every channel)."""
@@ -358,21 +394,23 @@ class Mindy:
             if not rows:
                 return await self.say("📒 Your khata is empty. Try _Ramesh owes me 500_ or _paid Sunil 300_.")
             total = sum(r["balance"] for r in rows)
-            lines = "\n".join("• " + skills.balance_line(r) for r in rows[:15])
-            return await self.say(f"📒 *Your khata*\n{lines}\n\nNet: {'you get' if total >= 0 else 'you pay'} *₹{abs(total):,}*. Say _remind Ramesh_ to send a payment reminder.")
+            cur = countries.for_user(self.db, user)["cur"]
+            lines = "\n".join("• " + skills.balance_line(r, cur) for r in rows[:15])
+            return await self.say(f"📒 *Who owes what*\n{lines}\n\nNet: {'you get' if total >= 0 else 'you pay'} *{cur}{abs(total):,}*. Say _remind Ramesh_ to send a payment reminder.")
         m = re.match(r"^remind ([a-z][a-z .']{0,30}?)(?: to pay| about (?:the )?money| for (?:the )?money)?\s*$", low)
         if m and not re.search(r"\b(me|us)\b", m.group(1)):
             b = skills.khata_balance(self.db, user["id"], m.group(1).strip())
             if b["entries"] and b["balance"] > 0:
                 me = self.db.one("SELECT * FROM users WHERE id=?", (user["id"],))
-                req = skills.pay_request(me, b["person"].title(), b["balance"])
-                tip = "" if me.get("upi") else "\n\nTip: send _my upi is yourname@bank_ once and I'll add a tap-to-pay link."
-                return await self.links(f"📨 Here's a friendly reminder for *{b['person'].title()}* (₹{b['balance']:,}). Tap, pick their chat, send.{tip}",
+                cur = countries.for_user(self.db, user)["cur"]
+                req = skills.pay_request(me, b["person"].title(), b["balance"], None, cur)
+                tip = "" if me.get("upi") or cur != "₹" else "\n\nTip: send _my upi is yourname@bank_ once and I'll add a tap-to-pay link."
+                return await self.links(f"📨 Here's a friendly reminder for *{b['person'].title()}* ({cur}{b['balance']:,}). Tap, pick their chat, send.{tip}",
                                         [("Send on WhatsApp", req["whatsapp"])])
         k = skills.parse_khata(text)
         if k:
             b = skills.khata_add(self.db, user["id"], k, text)
-            return await self.say(f"📒 Noted. {skills.balance_line(b)}.")
+            return await self.say(f"📒 Noted. {skills.balance_line(b, countries.for_user(self.db, user)['cur'])}.")
         d = skills.do_it(text)
         if d:
             return await self.links(d["reply"], d["links"])
@@ -486,6 +524,8 @@ class Mindy:
     # ------------------------------------------------------------ buttons
     async def on_button(self, user, msg):
         bid = self._text_of(msg)
+        if bid.startswith("nr:"):
+            return await self.try_node(user, bid[3:])
         mb = await asyncio.to_thread(more.on_button, self.db, user, bid)
         if mb:
             return await self.more_reply(mb)

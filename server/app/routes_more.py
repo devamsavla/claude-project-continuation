@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
-from . import care, countries, mind, more, skills
+from . import neurons, care, countries, mind, more, skills
 from .auth import make_dependency, new_session, too_many
 from .config import settings
 from .db import DB, now_iso
@@ -52,7 +52,7 @@ def _user_by_share(db: DB, key: str) -> dict:
     return u
 
 
-def make_more_router(db: DB, mindy) -> APIRouter:
+def make_more_router(db: DB, mindy, mindy_do=None) -> APIRouter:
     r = APIRouter()
     me_dep = make_dependency(db)
 
@@ -368,6 +368,34 @@ def make_more_router(db: DB, mindy) -> APIRouter:
     @r.get("/api/brain")
     def brain(me=Depends(me_dep)):
         return more.brain_score(db, me)
+
+    # ------------------------------------------------------------ the mind map: 8 branches, 48 neurons, one tap to try each
+    @r.get("/api/mind/map")
+    def mind_map(me=Depends(me_dep)):
+        m = neurons.mind_map(db, me)
+        m["score"] = more.brain_score(db, me)["score"]
+        return m
+
+    @r.post("/api/neurons/{node}/try")
+    async def try_neuron(node: str, me=Depends(me_dep)):
+        n = neurons.NODES.get(node)
+        if not n:
+            raise HTTPException(404, "No such neuron")
+        kind, what = n["try"]
+        if kind == "demo":
+            from . import m2m
+            fr = (m2m.linked(db, me["id"]) or [{"name": None}])[0]["name"]
+            out = {"kind": "demo", "preview": neurons.demo_text(node, me, fr).replace("*", ""),
+                   "note": "A preview — nothing was sent. Say it for real in chat when you're ready."}
+        elif what.startswith("menu:") or not mindy_do:
+            out = {"kind": "open", "to": n["branch"]}
+        else:
+            res = await mindy_do(me, what, light=False)
+            out = {"kind": "did", "said": what, **(res if isinstance(res, dict) else {"reply": str(res)})}
+        changed = neurons.fire(db, me["id"], [node])
+        out["lit"] = bool(changed)
+        out["map"] = neurons.mind_map(db, me)
+        return out
 
     # ------------------------------------------------------------ Brain Score share card (an image for Stories) and its page
     @r.get("/card/{key}.png")

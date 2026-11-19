@@ -384,15 +384,15 @@ def khata_all(db: DB, uid: int) -> list[dict]:
                 "HAVING SUM(delta)!=0 ORDER BY ABS(SUM(delta)) DESC", (uid,))
 
 
-def balance_line(b: dict) -> str:
+def balance_line(b: dict, cur: str = "₹") -> str:
     n = b["balance"]
-    return f"{b['person']} owes you ₹{n:,}" if n > 0 else f"You owe {b['person']} ₹{-n:,}" if n < 0 else f"You and {b['person']} are settled ✅"
+    return f"{b['person']} owes you {cur}{n:,}" if n > 0 else f"You owe {b['person']} {cur}{-n:,}" if n < 0 else f"You and {b['person']} are settled ✅"
 
 
-def pay_request(user: dict, person: str, amount: int, phone: str | None = None) -> dict:
-    """A friendly WhatsApp message to send someone, with a UPI link to pay you."""
-    vpa = user.get("upi")
+def pay_request(user: dict, person: str, amount: int, phone: str | None = None, cur: str = "₹") -> dict:
+    """A friendly WhatsApp message to send someone, with a UPI link to pay you (UPI only where it exists: India)."""
+    vpa = user.get("upi") if cur == "₹" else None
     upi = "upi://pay?" + urlencode({"pa": vpa, "pn": user.get("name") or "", "am": amount, "cu": "INR", "tn": "via Mindy"}) if vpa else None
-    msg = f"Hi {person}! Gentle reminder about ₹{amount:,} 🙂" + (f" You can pay here in one tap: {go_link(upi)}" if upi else "") + " Thanks!"
+    msg = f"Hi {person}! Gentle reminder about {cur}{amount:,} 🙂" + (f" You can pay here in one tap: {go_link(upi)}" if upi else "") + " Thanks!"
     wa_link = (f"https://wa.me/{re.sub(r'[^0-9]', '', phone)}?text=" if phone else "https://wa.me/?text=") + quote(msg)
     return {"message": msg, "whatsapp": wa_link, "upi": go_link(upi) if upi else None}
