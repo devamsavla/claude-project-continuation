@@ -103,7 +103,10 @@ def translate(text: str, lang: str | None, who: str | None = None) -> str:
     name = "Hinglish (Hindi in Latin letters, mixed with English)" if lang == "hinglish" else LANG_NAME.get(lang, lang)
     out = llm.chat("Translate this WhatsApp message into " + name + ". Keep emojis, *bold* markers, links, numbers and names exactly. "
                    "Warm and simple words. Output only the translation.\n\n" + text, who=who, max_tokens=700)
-    return out.strip() if out else text
+    out = (out or "").strip()
+    if not out or len(out) < 0.3 * len(text) or len(out) > 4 * len(text) + 80 or re.match(r"^(sure|here|translation)\b", out, re.I):
+        return text  # the model misbehaved: better English than nonsense
+    return out
 
 
 # ---------------------------------------------------------------- your own Mindy
@@ -206,7 +209,7 @@ def loan_alert(user, text, db) -> dict | None:
 
 # ---------------------------------------------------------------- subscriptions and card due dates
 SUBS = r"netflix|spotify|prime|amazon prime|hotstar|disney|youtube premium|youtube|icloud|google one|chatgpt|claude|gym|jio|airtel|vi |broadband|wifi|apple music|canva|adobe|xbox|playstation|zee5|sonyliv|audible|kindle|linkedin|duolingo"
-SUB_RX = re.compile(rf"^(?:(?:add )?sub(?:scription)?:?\s+)?({SUBS}|[a-z][\w ]{{1,20}}?)\s+(?:₹|rs\.?|inr|\$|£|€|aed|r\$)?\s*(\d[\d,]*)(?:\s*(?:per|a|/|every)\s*(month|year|week))?(?:\s+on\s+(?:the\s+)?(\d{{1,2}})(?:st|nd|rd|th)?)?\s*$", re.I)
+SUB_RX = re.compile(rf"^(?:(?:add )?sub(?:scription)?:?\s+)?({SUBS}|[a-z][\w ]{{1,20}}?)\s+(?:₹|rs\.?|inr|\$|£|€|aed|r\$)?\s*(\d[\d,]*)(?:\s*(?:(?:per|a|/|every)\s*(month|year|week)|(month)ly|(year)ly|(week)ly|annually))?(?:\s+on\s+(?:the\s+)?(\d{{1,2}})(?:st|nd|rd|th)?)?\s*$", re.I)
 
 
 def subscription(user, text, db) -> dict | None:
@@ -231,7 +234,11 @@ def subscription(user, text, db) -> dict | None:
     m = SUB_RX.match(low)
     if not m or not (re.match(SUBS, m.group(1)) or low.startswith(("sub ", "subscription"))):
         return None
-    name, amt, per, day = m.group(1).strip().title(), int(m.group(2).replace(",", "")), (m.group(3) or "month"), int(m.group(4) or _today(user).day)
+    name, amt = m.group(1).strip().title(), int(m.group(2).replace(",", ""))
+    per = next((g for g in m.groups()[2:6] if g), "month")
+    day = int(m.group(7) or _today(user).day)
+    if amt <= 0 or not 1 <= day <= 31:
+        return R("📺 Tell me like _Netflix 649 on the 5th_.")
     p = countries.for_user(db, user)
     rid = mind.monthly_reminder(db, user, f"{name} {countries.money(p, amt)} renews in 2 days", max(1, day - 2))
     db.x("UPDATE reminders SET kind='sub' WHERE id=?", (rid,))
@@ -600,9 +607,13 @@ def little(user, text, db) -> dict | None:
         who = [x.strip().title() for x in re.split(r",|\band\b|&", m.group(2)) if x.strip()]
         if len(who) == 1 and who[0].isdigit():
             n = int(who[0])
+            if n < 1 or total <= 0:
+                return R("🧮 Tell me the total and how many people, like _split 1200 between 4_.")
             return R(f"🧮 {countries.money(countries.for_user(db, user), total / n)} each ({n} people).")
+        if total <= 0 or not who:
+            return R("🧮 Tell me the total and who to split with, like _split 1200 between Asha and Ben_.")
         share = math.ceil(total / (len(who) + 1))
-        links = [(f"Ask {n}", pay_request(db, user, n, share, None, "our bill")["whatsapp"]) for n in who[:3]]
+        links = [(f"Ask {n}"[:20], pay_request(db, user, n, share, None, "our bill")["whatsapp"]) for n in who[:3]]
         for n in who:
             skills.khata_add(db, uid, {"person": n.lower(), "delta": share, "kind": "split"}, f"split {total}")
         return R(f"🧮 {countries.money(countries.for_user(db, user), share)} each, you included. Added to your khata; tap to send their share.", links=links)
@@ -621,9 +632,16 @@ def little(user, text, db) -> dict | None:
     return None
 
 
+COMMANDISH = re.compile(r"^(call yourself|language|remind|ask |tell |menu|be (sweet|cheeky|calm)|brain|split|gift|staff|customer|bill |check|safe$|"
+                        r"my |what |where |how |help$|hi$|hello|carousel|caption|schemes?|itr|wishlist|code ?word|kept |time capsule)", re.I)
+
+
 def draft_reply(user, text, db) -> dict | None:
     to = _kv_get(db, f"await_reply:{user['id']}")
     if not to:
+        return None
+    if COMMANDISH.match(text.strip()) and len(text) < 80:
+        _kv_set(db, f"await_reply:{user['id']}", None)
         return None
     _kv_set(db, f"await_reply:{user['id']}", None)
     vibe = next((v for v in ("flirty", "funny", "firm", "sorry", "sweet", "formal") if v in text.lower()), "warm")
@@ -793,7 +811,8 @@ def handle(db: DB, user: dict, text: str, key: str | None = None) -> dict | None
         return R("☰ *Your Mindy*\nTap anything. No typing needed.", list=money.MENU)
     if re.match(r"^(my )?(spend|spending|expenses|where did my money go|money summary)\b", low):
         return R(money.summary_text(db, user), app=("See the breakdown", "money"))
-    if re.match(r"^(itr|income tax|tax|taxes|tax return|file (my )?(itr|taxes|tax return)|self assessment|my (income|salary|ctc) is)\b", low) and not re.search(r"\b(deadline|due)\b", low):
+    if (re.match(r"^(itr|income tax|tax|taxes|tax return|file (my )?(itr|taxes|tax return)|self assessment|my (income|salary|ctc) is)\b", low)
+            or re.search(r"\b(file|filing|submit|do)\b.{0,15}\b(tax|taxes|itr|tax return|self assessment)\b", low)) and not re.search(r"\b(deadline|due)\b", low):
         return R(money.tax_help(db, user, text))
     r = _safe(money.checklist, db, user, text)
     if r:

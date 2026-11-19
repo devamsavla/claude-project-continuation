@@ -85,9 +85,10 @@ def chat_json(prompt: str, system: str = "", **kw) -> dict | None:
     if not raw:
         return None
     try:
-        return json.loads(raw[raw.index("{"): raw.rindex("}") + 1])
+        out = json.loads(raw[raw.index("{"): raw.rindex("}") + 1])
     except ValueError:
         return None
+    return out if isinstance(out, dict) else None
 
 
 def transcribe(audio: bytes, fmt: str = "mp3", who: str | None = None) -> str | None:

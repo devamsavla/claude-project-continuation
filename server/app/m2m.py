@@ -367,11 +367,19 @@ def remind_other(db: DB, user: dict, text: str) -> dict | None:
     if not m or m.group(1).strip().lower() in ("me", "us", "myself", "everyone", "mindy"):
         return None
     to = find(db, user["id"], m.group(1))
-    if not to:
-        return None  # not linked: let the normal reminder handle it ("remind Rahul to…" as a note to self)
-    from .brain import parse_when
+    from .brain import parse_when, strip_when
     task = m.group(2).strip().rstrip(".")
     when = parse_when(task, user.get("tz") or "UTC")
+    if not to:  # not linked: remind the user to remind them, and offer to link
+        if when is None:
+            return None
+        from .handlers import fmt_local
+        name = m.group(1).strip().title()
+        due = when.astimezone(timezone.utc).replace(microsecond=0).isoformat()
+        what = strip_when("remind me " + task)
+        db.add_reminder(user["id"], f"Remind {name} to {what}", due)
+        return R(f"⏰ I'll remind *you* to remind {name} to {what}, {fmt_local(due, user.get('tz') or 'UTC')}.\n"
+                 f"Link with {name} (say _my link_) and next time I'll remind them directly on their own Mindy.")
     if when is None:
         res = send(db, user, to, "remind", task)
         return res
@@ -418,5 +426,7 @@ def tell(db: DB, user: dict, text: str) -> dict | None:
         return R(f"💬 Told {len(notify)} people: “{msg}”", notify=notify)
     to = find(db, user["id"], who)
     if not to:
-        return None
+        if len(who.split()) > 2 or who.lower() in ("him", "her", "them", "it"):
+            return None
+        return forward_invite(db, user, who.title(), "ask", f"{user.get('name') or 'Your friend'} says: “{msg}”")
     return send(db, user, to, "note", msg)

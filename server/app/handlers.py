@@ -58,6 +58,36 @@ HELP += ("\n• *Tech friend*: _book an uber to Phoenix Mall_, _pay ₹500 to na
          "\n• *Files*: send a video with _mp3_ or _compress_\n• *Family*: _family 123456_ to link with family")
 
 
+NOISE_END = re.compile(r"(?:\s*(?:pls|plz|please|thx|thanks|thank you|ty|asap|[\U0001F300-\U0001FAFF\u2600-\u27BF\uFE0F]+|!+|\.{2,}))+$", re.I)
+
+
+def tidy(text: str) -> str:
+    """'hey mindy CHECK ON ASHA 🙏 pls' -> 'CHECK ON ASHA': drop the greeting to Mindy and trailing politeness/emojis,
+    so commands match however they're written. Messages that are only a greeting or emoji stay as they are."""
+    t = re.sub(r"^(?:(?:hey|hi|hello|ok|okay|yo|oi|dear)[\s,]+)?mindy\b[\s,!:.\-]*", "", text.strip(), flags=re.I)
+    t = re.sub(r"^(?:pls|plz|please|kindly)\s+", "", t, flags=re.I)
+    t = NOISE_END.sub("", t).strip()
+    t = re.sub(r"\?{2,}", "?", t)
+    t = fix_first_word(t)
+    return t if len(t) >= 2 else text.strip()
+
+
+COMMAND_WORDS = ["remind", "reminder", "check", "ask", "tell", "split", "paid", "lent", "owes", "gift", "wishlist", "staff", "carousel",
+                 "caption", "schemes", "language", "menu", "where", "kept", "safe", "subscriptions", "spending", "documents", "khata"]
+
+
+def fix_first_word(t: str) -> str:
+    """'remidn me at 5' -> 'remind me at 5'. Only the first word, only close typos of Mindy's command words."""
+    import difflib
+    m = re.match(r"^([A-Za-z]{4,12})\b(.*)$", t, re.S)
+    if not m or m.group(1).lower() in COMMAND_WORDS:
+        return t
+    hit = difflib.get_close_matches(m.group(1).lower(), COMMAND_WORDS, n=1, cutoff=0.8)
+    if hit and hit[0] == "reminder" and re.match(r"^\s+me\b", m.group(2)):
+        hit = ["remind"]
+    return (hit[0] + m.group(2)) if hit else t
+
+
 def fmt_local(dt_utc_iso: str, tz: str) -> str:
     d = datetime.fromisoformat(dt_utc_iso).astimezone(ZoneInfo(tz))
     return f"{d:%a} {d.day} {d:%b}, {d:%H:%M}"
@@ -215,6 +245,7 @@ class Mindy:
 
     # ------------------------------------------------------------ text
     async def on_text(self, user: dict, text: str, mid: str, share: str | None = None):
+        text = tidy(text)
         tz = user["tz"]
         low = text.strip().lower()
         if low.startswith("timezone "):
@@ -324,9 +355,9 @@ class Mindy:
         d = skills.do_it(text)
         if d:
             return await self.links(d["reply"], d["links"])
-        if share or re.search(r"(?:https?://|www\.)\S+", text):
+        if share or re.search(r"(?:https?://|www\.)\S+", text) or len(text) >= 30:
             chk = skills.check_message(self.db, text, use_ai=False)
-            if chk["verdict"] == "scam":
+            if chk["verdict"] == "scam" or (chk["verdict"] == "careful" and chk["score"] >= 3):
                 self.db.x("INSERT OR REPLACE INTO kv(k,v) VALUES(?,?)", (f"last_check:{user['id']}", text))
                 return await self.say(chk["reply"])
         if share:  # a reel or post shared from Instagram: always save it, then offer to make it real

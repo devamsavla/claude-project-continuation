@@ -4,9 +4,11 @@ Without WA_TOKEN it runs in dry-run mode: messages go to `outbox` (used by tests
 import hashlib
 import hmac
 import logging
+import re
 
 import httpx
 
+from . import validate
 from .config import settings
 
 log = logging.getLogger("mindy.whatsapp")
@@ -28,6 +30,7 @@ class WhatsApp:
 
     def __init__(self):
         self.outbox: list[dict] = []
+        self.problems: list = []
         self.base = f"https://graph.facebook.com/{settings.graph_version}"
 
     @property
@@ -36,6 +39,10 @@ class WhatsApp:
 
     async def _post(self, payload: dict) -> dict:
         payload = {"messaging_product": "whatsapp", **payload}
+        problems = validate.whatsapp(payload)
+        if problems:
+            log.error("WhatsApp payload breaks Meta's limits %s: %s", problems, str(payload)[:300])
+            self.problems.append((problems, payload))
         if not settings.whatsapp_live:
             self.outbox.append(payload)
             log.info("DRY-RUN send %s", payload)
@@ -48,7 +55,13 @@ class WhatsApp:
 
     # ---- sending ----
     async def text(self, to: str, body: str, reply_to: str | None = None, preview_url: bool = True):
-        p = {"to": to, "type": "text", "text": {"body": body[:4096], "preview_url": preview_url}}
+        body = (body or "").strip() or "👍"
+        if len(body) > 4096:  # split long replies instead of cutting them off
+            cut = body.rfind("\n", 0, 4000)
+            cut = cut if cut > 1000 else 4000
+            await self.text(to, body[:cut], reply_to, preview_url)
+            return await self.text(to, body[cut:], None, preview_url)
+        p = {"to": to, "type": "text", "text": {"body": body, "preview_url": preview_url}}
         if reply_to:
             p["context"] = {"message_id": reply_to}
         return await self._post(p)
@@ -57,22 +70,39 @@ class WhatsApp:
         """Up to 3 reply buttons, titles max 20 characters."""
         if not buttons:
             return await self.text(to, body)
-        inter = {"type": "button", "body": {"text": body[:1024]},
-                 "action": {"buttons": [{"type": "reply", "reply": {"id": i, "title": t[:20]}} for i, t in buttons[:3]]}}
+        body = (body or "").strip() or "Choose one:"
+        if len(body) > 1024:  # buttons allow 1024 characters: send the long part as text, keep the question with the buttons
+            cut = body.rfind("\n", 0, len(body) - 1)
+            head, body = (body[:cut], body[cut + 1:]) if 0 < cut and len(body) - cut <= 1024 else (body, "Choose one:")
+            await self.text(to, head)
+        seen, btns = set(), []
+        for i, t in buttons:
+            t = (t or "").strip()[:20] or "OK"
+            while t in seen:  # titles must be unique
+                t = (t[:18] + " " + str(len(seen)))[:20]
+            seen.add(t)
+            btns.append({"type": "reply", "reply": {"id": i[:256], "title": t}})
+            if len(btns) == 3:
+                break
+        inter = {"type": "button", "body": {"text": body},
+                 "action": {"buttons": btns}}
         if header:
             inter["header"] = {"type": "text", "text": header[:60]}
         return await self._post({"to": to, "type": "interactive", "interactive": inter})
 
     async def list_menu(self, to: str, body: str, button: str, rows: list[tuple[str, str, str]], section="Options"):
         """Up to 10 rows: (id, title<=24, description<=72)."""
-        inter = {"type": "list", "body": {"text": body[:1024]},
+        body = (body or "").strip() or "Choose one:"
+        inter = {"type": "list", "body": {"text": body[:4096]},
                  "action": {"button": button[:20], "sections": [{"title": section[:24], "rows": [
                      {"id": i, "title": t[:24], "description": d[:72]} for i, t, d in rows[:10]]}]}}
         return await self._post({"to": to, "type": "interactive", "interactive": inter})
 
     async def template(self, to: str, name: str, params: list[str], lang: str | None = None):
         """Business-initiated messages outside the 24-hour window must use an approved template."""
-        comp = [{"type": "body", "parameters": [{"type": "text", "text": p[:1000]} for p in params]}] if params else []
+        # Meta rejects template parameters with newlines, tabs or 5+ spaces in a row (error 132018), or empty ones.
+        clean = [re.sub(r" {4,}", "   ", re.sub(r"[\r\n\t]+", " · ", str(p or ""))).strip(" ·")[:1000] or "-" for p in params]
+        comp = [{"type": "body", "parameters": [{"type": "text", "text": p} for p in clean]}] if params else []
         return await self._post({"to": to, "type": "template",
                                  "template": {"name": name, "language": {"code": lang or settings.template_lang}, "components": comp}})
 
@@ -87,6 +117,12 @@ class WhatsApp:
         return await self._post({"to": to, "type": "location", "location": {"latitude": lat, "longitude": lng, "name": name[:100], "address": address[:200]}})
 
     async def link_button(self, to: str, body: str, label: str, url: str):
+        body = (body or "").strip() or "Tap below:"
+        if not re.match(r"^https?://", url or ""):
+            return await self.text(to, f"{body}\n{label}: {url}")
+        if len(body) > 1024:
+            await self.text(to, body)
+            body = "👇"
         """One tappable button that opens a link (Uber, Maps, UPI via /go)."""
         return await self._post({"to": to, "type": "interactive", "interactive": {"type": "cta_url", "body": {"text": body[:1024]},
                                  "action": {"name": "cta_url", "parameters": {"display_text": label[:20], "url": url}}}})

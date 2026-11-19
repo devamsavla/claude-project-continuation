@@ -88,7 +88,11 @@ SCAM = [
     (r"\b(urgent|immediately|within 24 hours|today only|last chance)\b", 1, "rushes you"),
     (r"\b(gift card|google play card|amazon voucher)\b", 3, "asks for gift cards"),
     (r"\b(hi (mum|mom|dad)|new number|lost my phone)\b", 3, "claims to be family on a new number"),
+    (r"\b(processing|registration|release|clearance|redelivery|customs|small|handling) fee\b|\bpay (a )?(small|£|\$|€|₹|rs)", 2, "asks for a small fee first"),
+    (r"\b(could not be delivered|delivery (failed|attempt)|missed (a )?delivery|redeliver)", 2, "fake missed-delivery message"),
+    (r"\b(send|transfer)\b.{0,30}\b(money|£|\$|€|₹|rs\.?|\d{3,})\b.{0,40}\b(urgent|now|today|asap|quick)", 1, "asks for money urgently"),
 ]
+BARE_DOMAIN = re.compile(r"(?<![@\w/.])((?:[a-z0-9](?:[a-z0-9-]{0,40}[a-z0-9])?\.)+(?:com|in|co|uk|info|xyz|top|link|online|site|net|org|shop|live|app|io|me|club|vip|icu|buzz|cc|ws|tk|ml|ga|cf|gq|support|help|services)(?:\.(?:uk|in))?)(?:/\S*)?\b", re.I)
 
 
 def _nums(text: str) -> list[str]:
@@ -294,7 +298,10 @@ def link_check(db: DB, url: str) -> dict:
 def check_message(db: DB, text: str, who: str | None = None, use_ai: bool = True) -> dict:
     """Scam check for a whole message: words, numbers, reports and every link in it."""
     res = scam_check(db, text, who if use_ai else None) if use_ai else _scam_patterns_only(db, text)
-    for url in re.findall(r"(?:https?://|www\.)\S+", text)[:5]:
+    urls = re.findall(r"(?:https?://|www\.)\S+", text)
+    if not urls:  # "pay at royalmail-redelivery.info" has no http:// but is still a link
+        urls = ["http://" + m.group(0) for m in BARE_DOMAIN.finditer(text) if not re.search(r"\d+\.\d+", m.group(1))][:3]
+    for url in urls[:5]:
         lc = link_check(db, url)
         if lc["score"]:
             res["score"] += lc["score"]
@@ -333,6 +340,7 @@ def parse_khata(text: str) -> dict | None:
     pats = [
         (rf"^{name} owes? me {amt}", +1), (rf"^i lent {name} {amt}", +1), (rf"^lent {name} {amt}", +1), (rf"^gave {name} {amt}", +1),
         (rf"^{name} (?:ko|को) {amt} (?:diye|udhaar)", +1), (rf"^{name} se {amt} (?:lene|lena)", +1),
+        (rf"^{name} (?:took|borrowed|ne) {amt}(?: (?:udhaar|udhar|liye|uthaye))?\s*$", +1), (rf"^{name} ne {amt} (?:diye|lautaye|wapas kiye|de diye)", -2),
         (rf"^i owe {name} {amt}", -1), (rf"^owe {name} {amt}", -1), (rf"^borrowed {amt} from {name}\s*$", -1),
         (rf"^(?:got|received) {amt} from {name}\s*$", -2), (rf"^{name} paid (?:me )?(?:back )?{amt}", -2),
         (rf"^(?:i )?paid {name} (?:back )?{amt}", +2), (rf"^(?:i )?paid {amt} to {name}\s*$", +2),
