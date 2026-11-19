@@ -24,17 +24,23 @@ KINDS = {
     "money": [("paid", "✅ Paid"), ("tomorrow", "⏰ Tomorrow"), ("talk", "💬 Let's talk")],
     "ask": [("yes", "👍 Yes"), ("no", "👎 No"), ("later", "⏳ Tell you later")],
     "safe": [("yes", "💚 All good"), ("call", "📞 Call me")],
+    "remind": [("done", "✅ Done"), ("hour", "⏰ In 1 hour")],
+    "note": [("seen", "👍 Got it"), ("love", "❤️")],
     "decline": [("ok", "👍 No worries"), ("sad", "🥺 Next time!")],
 }
 ANSWER_TEXT = {"paid": "says it's *paid* ✅", "tomorrow": "will pay *tomorrow* ⏰", "talk": "wants to *talk about it* 💬", "yes": "says *yes* 👍",
-               "no": "says *no* 👎", "later": "will *tell you later* ⏳", "call": "asks you to *call them* 📞", "ok": "says *no worries* 👍", "sad": "says *next time!* 🥺"}
+               "no": "says *no* 👎", "later": "will *tell you later* ⏳", "call": "asks you to *call them* 📞", "ok": "says *no worries* 👍", "sad": "says *next time!* 🥺",
+               "done": "did it ✅", "hour": "will do it in an hour ⏰", "seen": "got your message 👍", "love": "sent ❤️"}
 
 
 def init(db: DB):
     with db.lock:
         db.conn.executescript(SCHEMA)
-        if "group_id" not in {r[1] for r in db.conn.execute("PRAGMA table_info(m2m)").fetchall()}:
+        cols = {r[1] for r in db.conn.execute("PRAGMA table_info(m2m)").fetchall()}
+        if "group_id" not in cols:
             db.conn.execute("ALTER TABLE m2m ADD COLUMN group_id INTEGER")
+        if "due_at" not in cols:
+            db.conn.execute("ALTER TABLE m2m ADD COLUMN due_at TEXT")
         db.conn.commit()
 
 
@@ -56,8 +62,14 @@ def find(db: DB, uid: int, name: str) -> dict | None:
     n = name.strip().lower()
     n = {"mum": "mum", "mom": "mum", "mummy": "mum", "maa": "mum", "dad": "dad", "papa": "dad"}.get(n, n)
     people = linked(db, uid)
-    return next((p for p in people if p["name"].lower() == n), None) or next((p for p in people if p["name"].lower().split(" ")[0] == n), None) \
-        or next((p for p in people if n and n in p["name"].lower()), None)
+    hit = next((p for p in people if p["name"].lower() == n), None) or next((p for p in people if p["name"].lower().split(" ")[0] == n), None) \
+        or next((p for p in people if n and len(n) > 2 and n in p["name"].lower()), None)
+    if hit or len(n) < 3:
+        return hit
+    import difflib  # typos: "Rahool" still finds Rahul
+    firsts = {p["name"].lower().split(" ")[0]: p for p in people if p["name"]}
+    close = difflib.get_close_matches(n.split(" ")[0], list(firsts), n=1, cutoff=0.72)
+    return firsts[close[0]] if close else None
 
 
 def invite_code(db: DB, uid: int) -> str:
@@ -92,12 +104,16 @@ def send(db: DB, user: dict, to: dict, kind: str, text: str, amount: float | Non
     body = {"money": f"💸 *{me}'s Mindy here.* A gentle nudge: {text}. No rush, just tap one:",
             "ask": f"💬 *{me}'s Mindy here.* {me} asks: {text}",
             "safe": f"💚 *{me}'s Mindy here.* {me} wants to know you're OK. {text}".strip(),
-            "decline": f"💌 *{me}'s Mindy here.* {text}"}[kind]
+            "decline": f"💌 *{me}'s Mindy here.* {text}",
+            "remind": f"⏰ *{me}'s Mindy here.* {me} asked me to remind you: *{text}*",
+            "note": f"💬 *{me}'s Mindy here.* {me} says: “{text}”"}[kind]
     buttons = [(f"m2m:{mid}:{a}", label) for a, label in KINDS[kind]]
     done = {"money": f"💸 Done. My Mindy asked {to['name']}'s Mindy, politely. I'll tell you what they say.",
             "ask": f"💬 Asked {to['name']}'s Mindy. I'll bring back the answer.",
             "safe": f"💚 Checking with {to['name']}'s Mindy. I'll tell you as soon as they tap.",
-            "decline": f"💌 Told {to['name']}, kindly, so you don't have to."}[kind]
+            "decline": f"💌 Told {to['name']}, kindly, so you don't have to.",
+            "remind": f"⏰ Reminded {to['name']}. I'll tell you when they tap Done.",
+            "note": f"💬 Told {to['name']}."}[kind]
     return R(done, notify=[(to["id"], body, buttons)])
 
 
@@ -140,7 +156,7 @@ def handle(db: DB, user: dict, text: str) -> dict | None:
     if m and (p := find(db, user["id"], m.group(1))):
         db.x("DELETE FROM m2m_mute WHERE user_id=? AND other=?", (user["id"], p["id"]))
         return R(f"🔔 {p['name']} can reach your Mindy again.")
-    g = group_ask(db, user, t)
+    g = group_ask(db, user, t) or remind_other(db, user, t) or tell(db, user, t)
     if g:
         return g
     kind = name = body = None
@@ -188,6 +204,9 @@ def on_button(db: DB, user: dict, bid: str) -> dict | None:
         return R("Already answered. 👍")
     if r["kind"] == "poll":
         return poll_answer(db, user, r, ans)
+    if r["kind"] == "remind" and ans == "hour":
+        db.x("UPDATE m2m SET status='scheduled', due_at=? WHERE id=?", ((datetime.now(timezone.utc) + timedelta(hours=1)).replace(microsecond=0).isoformat(), r["id"]))
+        return R("⏰ Okay, I'll remind you again in an hour.")
     db.x("UPDATE m2m SET status='answered', answer=?, answered_at=? WHERE id=?", (ans, now_iso(), r["id"]))
     me = user.get("name") or "They"
     what = f" (about {r['text']})" if r["kind"] == "money" else ""
@@ -337,3 +356,67 @@ def poll_answer(db: DB, user: dict, r: dict, ans: str) -> dict:
             head = "🗳️ Everyone answered, but no option worked for anyone. Try other options?\n\n"
     return R(f"Got it: *{picked}*. I've told {(db.one('SELECT name FROM users WHERE id=?', (g['from_uid'],)) or {}).get('name') or 'them'}. 👍",
              notify=[(g["from_uid"], head + tally_text(t), [])])
+
+
+# ---------------------------------------------------------------- remind someone else, through their Mindy
+REMIND_RX = re.compile(r"^remind\s+([a-z][a-z .']{0,24}?)\s+to\s+(.+)$", re.I)
+
+
+def remind_other(db: DB, user: dict, text: str) -> dict | None:
+    m = REMIND_RX.match(text.strip())
+    if not m or m.group(1).strip().lower() in ("me", "us", "myself", "everyone", "mindy"):
+        return None
+    to = find(db, user["id"], m.group(1))
+    if not to:
+        return None  # not linked: let the normal reminder handle it ("remind Rahul to…" as a note to self)
+    from .brain import parse_when
+    task = m.group(2).strip().rstrip(".")
+    when = parse_when(task, user.get("tz") or "UTC")
+    if when is None:
+        res = send(db, user, to, "remind", task)
+        return res
+    clean = re.sub(r"\s+(?:at|by|on|tomorrow|today|tonight|this|next|in)\b.*$", "", task, flags=re.I).strip() or task
+    due = when.astimezone(timezone.utc).replace(microsecond=0).isoformat()
+    db.x("INSERT INTO m2m(from_uid,to_uid,kind,text,created_at,status,due_at) VALUES(?,?,?,?,?,?,?)", (user["id"], to["id"], "remind", clean, now_iso(), "scheduled", due))
+    from .handlers import fmt_local
+    return R(f"⏰ I'll remind {to['name']} to *{clean}* {fmt_local(due, user.get('tz') or 'UTC')}, on their own Mindy. You'll hear when they tap Done.")
+
+
+async def due_reminders(db: DB, now: datetime | None = None):
+    """Sends scheduled 'remind them' requests when they're due. Runs every minute."""
+    from .handlers import deliver
+    from .config import settings
+    now = now or datetime.now(timezone.utc)
+    for r in db.q("SELECT m.*, u.name FROM m2m m JOIN users u ON u.id=m.from_uid WHERE m.status='scheduled' AND m.due_at<=?", (now.isoformat(),)):
+        db.x("UPDATE m2m SET status='open' WHERE id=?", (r["id"],))
+        me = r["name"] or "Your friend"
+        await deliver(db, r["to_uid"], f"⏰ *{me}'s Mindy here.* {me} asked me to remind you: *{r['text']}*",
+                      [(f"m2m:{r['id']}:{a}", l) for a, l in KINDS["remind"]], settings.reminder_template, [f"{me} asked me to remind you: {r['text']}"], now)
+
+
+# ---------------------------------------------------------------- pass a message on (one person or everyone)
+TELL_RX = re.compile(r"^(?:tell|let|message|text)\s+(everyone|everybody|all|the group|[a-z][a-z .']{0,24}?)\s+(?:know\s+)?(?:that\s+)?(.{3,300})$", re.I)
+
+
+def tell(db: DB, user: dict, text: str) -> dict | None:
+    m = TELL_RX.match(text.strip())
+    if not m or DECLINE.match(text.strip()):
+        return None
+    who, msg = m.group(1).strip(), m.group(2).strip()
+    if who.lower() in ("me", "mindy", "you"):
+        return None
+    if who.lower() in ("everyone", "everybody", "all", "the group"):
+        people = linked(db, user["id"])
+        if not people:
+            return R("🤝 You haven't linked anyone yet. Say _my link_ and send it to your people.")
+        notify, me = [], user.get("name") or "Your friend"
+        for p in people:
+            if db.one("SELECT 1 FROM m2m_mute WHERE user_id=? AND other=?", (p["id"], user["id"])):
+                continue
+            mid = db.x("INSERT INTO m2m(from_uid,to_uid,kind,text,created_at) VALUES(?,?,?,?,?)", (user["id"], p["id"], "note", msg, now_iso()))
+            notify.append((p["id"], f"💬 *{me}'s Mindy here.* {me} says: “{msg}”", [(f"m2m:{mid}:{a}", l) for a, l in KINDS["note"]]))
+        return R(f"💬 Told {len(notify)} people: “{msg}”", notify=notify)
+    to = find(db, user["id"], who)
+    if not to:
+        return None
+    return send(db, user, to, "note", msg)

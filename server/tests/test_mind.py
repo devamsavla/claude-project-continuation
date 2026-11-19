@@ -405,3 +405,70 @@ def test_promises_kept(monkeypatch):
     # pet and tax deadlines
     assert "Bruno's vaccine" in send(ext, "Bruno vaccine 3 Jan")
     assert "Deadline saved" in send(ext, "tax deadline 31 January")
+
+
+def test_semantic_understanding(monkeypatch):
+    """Free-form messages reach the right skill through the model, which only ever picks real skills."""
+    from app import intent, llm, m2m
+    assert intent.to_command({"skill": "ask_money", "slots": {"person": "Rahul", "amount": "₹500", "for": "friday dinner"}, "sure": 0.9}) == "ask Rahul for 500 for friday dinner"
+    assert intent.to_command({"skill": "ask_group", "slots": {"question": "which night works", "options": ["Fri", "Sat"]}}) == "ask everyone which night works: Fri, Sat"
+    assert intent.to_command({"skill": "ask_person", "slots": {"person": "Riya", "question": "free on saturday"}}) == "ask Riya if free on saturday"
+    assert intent.to_command({"skill": "delete_everything", "slots": {}}) is None
+    assert intent.to_command({"skill": "ask_money", "slots": {"person": "Rahul"}}) is None  # missing amount
+    assert intent.to_command({"skill": "ask_money", "slots": {"person": "Rahul", "amount": "500"}, "sure": 0.3}) is None
+    me, fr = "447700900350", "447700900351"
+    send(me, "hi", name="Dev")
+    send(fr, "hi", name="Rahul")
+    send(fr, f"join {m2m.invite_code(db, user_of(me)['id'])}")
+    monkeypatch.setattr(llm, "live", lambda: True)
+    monkeypatch.setattr(llm, "chat_json", lambda *a, **k: {"skill": "ask_money", "slots": {"person": "rahul", "amount": "500", "for": "dinner"}, "sure": 0.95})
+    monkeypatch.setattr(llm, "chat", lambda *a, **k: None)
+    wa.outbox.clear()
+    out = send(me, "yo rahul still owes me 500 from friday dinner can u chase him")
+    assert "asked Rahul's Mindy" in out
+    assert any("Dev's Mindy here" in body(m) for m in wa.outbox if m.get("to") == fr)
+    # typos still find the right person
+    assert m2m.find(db, user_of(me)["id"], "Rahool")["name"] == "Rahul"
+
+
+def test_remind_and_tell_through_their_mindy():
+    from app import m2m
+    me, fr = "447700900360", "447700900361"
+    send(me, "hi", name="Dev")
+    send(fr, "hi", name="Rahul")
+    send(fr, f"join {m2m.invite_code(db, user_of(me)['id'])}")
+    out = send(me, "remind Rahul to bring the charger tomorrow at 6pm")
+    assert "I'll remind Rahul to *bring the charger*" in out
+    row = db.one("SELECT * FROM m2m WHERE kind='remind' AND status='scheduled'")
+    wa.outbox.clear()
+    db.x("UPDATE m2m SET due_at=? WHERE id=?", ((datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat(), row["id"]))
+    asyncio.run(m2m.due_reminders(db))
+    assert any("remind you: *bring the charger*" in body(m) for m in wa.outbox if m.get("to") == fr)
+    wa.outbox.clear()
+    tap(fr, f"m2m:{row['id']}:done")
+    assert any("did it ✅" in body(m) for m in wa.outbox if m.get("to") == me)
+    wa.outbox.clear()
+    assert "Told 1 people" in send(me, "tell everyone I'm running 10 min late")
+    assert any("running 10 min late" in body(m) for m in wa.outbox if m.get("to") == fr)
+    assert "so you don't have to" in send(me, "tell Rahul I can't make it to the party")
+    # a person who isn't linked: falls back to a normal reminder for yourself
+    assert "Mindy here" not in send(me, "remind Zara to call me tomorrow 9am")
+
+
+def test_carousel_maker(monkeypatch):
+    from app import carousel, llm
+    from PIL import Image
+    import io
+    made = carousel.write("Diwali offer: 20% off all cakes; Order by 10 Nov; Free delivery in Andheri; DM to order")
+    assert len(made["slides"]) == 4 and made["slides"][0]["title"].startswith("Diwali offer")
+    pngs = carousel.render(made["slides"], 30, "@sweetcrumbs")
+    assert len(pngs) == 4 and Image.open(io.BytesIO(pngs[0])).size == (1080, 1350)
+    monkeypatch.setattr(llm, "live", lambda: True)
+    monkeypatch.setattr(llm, "chat_json", lambda *a, **k: {"slides": [{"title": "Stop wasting money", "body": "5 small fixes"}] + [{"title": f"Tip {i}", "body": "Do this"} for i in range(1, 5)] + [{"title": "Follow for more", "body": ""}],
+                                                       "caption": "Small fixes, big savings.", "hashtags": ["money tips", "#savings"]})
+    ext = "447700900370"
+    send(ext, "hi", name="Asha")
+    wa.outbox.clear()
+    out = send(ext, "make a carousel about 5 ways to save money")
+    imgs = [m for m in wa.outbox if m.get("type") == "image"]
+    assert len(imgs) == 6 and "6 slides" in out and "#moneytips" in out

@@ -191,6 +191,8 @@ async def weekly_handled(db: DB, now: datetime | None = None):
 
 
 def add_jobs(scheduler, db: DB):
+    from . import m2m
+    scheduler.add_job(m2m.due_reminders, "interval", seconds=60, args=[db], id="m2m_remind", max_instances=1, coalesce=True)
     scheduler.add_job(goal_checkins, "interval", minutes=15, args=[db], id="goals", max_instances=1, coalesce=True)
     scheduler.add_job(gift_nudges, "cron", hour=9, minute=40, args=[db], id="giftnudge")
     scheduler.add_job(gratitude_cards, "cron", day=1, hour=10, minute=35, args=[db], id="gratitude")

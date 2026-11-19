@@ -744,6 +744,31 @@ def little_more(user, text, db):
     return None
 
 
+CAROUSEL_RX = re.compile(r"^(?:please\s+)?(?:make|create|design|do|build)?\s*(?:me\s+)?(?:an?\s+)?(?:insta(?:gram)?\s+|ig\s+)?(?:carousel|slides|carousel post)(?:\s+(?:post|for|about|on|of))?\s*[:\-]?\s+(.{4,800})$", re.I | re.S)
+CAPTION_RX = re.compile(r"^(?:write\s+)?(?:me\s+)?(?:an?\s+)?(?:insta(?:gram)?\s+|ig\s+)?caption\s+(?:for|about|on)\s+(.{3,600})$", re.I | re.S)
+
+
+def creator(user, text, db):
+    """Instagram carousels and captions."""
+    from . import carousel
+    m = CAROUSEL_RX.match(text.strip())
+    if m:
+        topic = m.group(1).strip()
+        f = mind.facts(db, user["id"])
+        brand = f.get("business_name")
+        made = carousel.write(topic, str(user["id"]), brand)
+        handle = "@" + re.sub(r"\W", "", (brand or user.get("name") or "").lower())[:28] if (brand or user.get("name")) else ""
+        pngs = carousel.render(made["slides"], user.get("mindy_hue"), handle if len(handle) > 1 else "")
+        urls = [skills.store_media(p, "png") for p in pngs]
+        cap = made["caption"] + ("\n\n" + " ".join(made["hashtags"]) if made["hashtags"] else "")
+        return R(f"🎨 Your carousel: {len(urls)} slides, 1080×1350. Save each one, then post them together in order.\n\n*Caption*\n{cap}",
+                 images=urls)
+    m = CAPTION_RX.match(text.strip())
+    if m:
+        return R("✍️ " + carousel.caption(m.group(1).strip(), str(user["id"])))
+    return None
+
+
 def mindy_to_mindy(user, text, db):
     if re.match(r"^(what did you (handle|do)|handled|my week|what have you (handled|done))( for me)?( this week)?\??$", text.lower().strip()):
         return R(m2m.handled_text(db, user), app=("See it in the app", "now"))
@@ -751,7 +776,7 @@ def mindy_to_mindy(user, text, db):
 
 
 ORDER = [personalise, safety, habits, codeword, numbers, impersonation, human, screen_share, gifts, staff, business, vault,
-         subscription, wardrobe, little, little_more, mindy_to_mindy, loan_alert, trips]
+         subscription, wardrobe, little, little_more, creator, mindy_to_mindy, loan_alert, trips]
 
 
 def handle(db: DB, user: dict, text: str, key: str | None = None) -> dict | None:
@@ -999,3 +1024,20 @@ class SmsClient:
 
 SMS_WELCOME = ("Mindy here. Free help on your phone. Reply with a number:\n1. Government schemes for me\n2. Set a reminder\n3. Check a scam message\n"
                "Or just type your question. Hindi or English is fine.")
+
+
+def tldr(db: DB, user: dict, text: str) -> dict | None:
+    """A long forward or notice: three lines, the dates in it, and saved for later."""
+    if len(text) < 600 or not llm.live():
+        return None
+    out = llm.chat_json("Summarise this message for a busy person. Return {\"tldr\": [up to 3 short lines], \"dates\": [{\"what\": str, \"when\": str}], "
+                        "\"action\": str or null}. Same language as the message. Keep names, amounts and dates exact.\n\n" + text[:6000],
+                        who=str(user["id"]), max_tokens=350)
+    if not out or not out.get("tldr"):
+        return None
+    db.save_item(user["id"], "note", text[:4000], collection="Saved")
+    lines = "\n".join("• " + str(x) for x in out["tldr"][:3])
+    dates = [d for d in (out.get("dates") or []) if isinstance(d, dict) and d.get("what") and d.get("when")][:3]
+    extra = ("\n\n📅 " + "\n📅 ".join(f"{d['what']}: {d['when']}" for d in dates) + "\nSay _remind me_ + any of these and it's set.") if dates else ""
+    act = f"\n\n👉 {out['action']}" if out.get("action") else ""
+    return R(f"📌 *TL;DR* (saved the full message)\n{lines}{act}{extra}")
