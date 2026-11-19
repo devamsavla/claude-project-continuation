@@ -531,7 +531,7 @@ def make_router(db: DB, wa, mindy) -> APIRouter:
         if d:
             return {"reply": d["reply"].replace("*", ""), "did": [{"kind": "link"}], "links": d["links"]}
         if re.match(r"^(is (this|it) (a )?(scam|fraud|safe)|scam\??|check)\b", plain.lower()):
-            chk = await asyncio.to_thread(skills.check_message, db, plain, str(me["id"]))
+            chk = await asyncio.to_thread(skills.check_message, db, plain, str(me["id"]), True, countries.for_user(db, me).get("scam"))
             return {"reply": chk["reply"].replace("*", ""), "did": [{"kind": "check", "verdict": chk["verdict"]}]}
         low = text.lower()
         fr = friends_of(me["id"])

@@ -123,7 +123,7 @@ def scam_check(db: DB, text: str, who: str | None = None) -> dict:
     verdict = "scam" if score >= 4 else "careful" if score >= 2 else "ok"
     head = {"scam": "🚨 *This looks like a SCAM.*", "careful": "⚠️ *Be careful with this one.*", "ok": "✅ *I don't see scam signs.*"}[verdict]
     why = ("\nWhy: " + "; ".join(reasons[:4]) + ".") if reasons else ""
-    advice = {"scam": "\nDon't click links, don't share OTPs or PINs, don't install apps. Block the number. If money is gone, call 1930 (India cyber helpline) at once.",
+    advice = {"scam": "\nDon't click links, don't share OTPs or PINs, don't install apps. Block the number. If money is gone, call your bank on the number on your card at once.",
               "careful": "\nDon't share OTPs or PINs. If it says it's your bank, call the number on the back of your card instead.",
               "ok": "\nStill, never share an OTP or PIN with anyone, even if they say they're from your bank."}[verdict]
     return {"verdict": verdict, "score": score, "reasons": reasons, "numbers": nums, "reply": head + why + advice, "hash": h}
@@ -304,12 +304,12 @@ def link_check(db: DB, url: str) -> dict:
     return {"url": url, "host": host, "verdict": verdict, "score": score, "reasons": reasons}
 
 
-def check_message(db: DB, text: str, who: str | None = None, use_ai: bool = True) -> dict:
+def check_message(db: DB, text: str, who: str | None = None, use_ai: bool = True, help: str | None = None) -> dict:
     """Scam check for a whole message: words, numbers, reports and every link in it."""
     res = scam_check(db, text, who if use_ai else None) if use_ai else _scam_patterns_only(db, text)
     urls = re.findall(r"(?:https?://|www\.)\S+", text)
     if not urls:  # "pay at royalmail-redelivery.info" has no http:// but is still a link
-        urls = ["http://" + m.group(0) for m in BARE_DOMAIN.finditer(text) if not re.search(r"\d+\.\d+", m.group(1))][:3]
+        urls = ["https://" + m.group(0) for m in BARE_DOMAIN.finditer(text) if not re.search(r"\d+\.\d+", m.group(1))][:3]
     for url in urls[:5]:
         lc = link_check(db, url)
         if lc["score"]:
@@ -318,7 +318,7 @@ def check_message(db: DB, text: str, who: str | None = None, use_ai: bool = True
     res["verdict"] = "scam" if res["score"] >= 4 else "careful" if res["score"] >= 2 else "ok"
     head = {"scam": "🚨 *This looks like a SCAM.*", "careful": "⚠️ *Be careful with this one.*", "ok": "✅ *I don't see scam signs.*"}[res["verdict"]]
     why = ("\nWhy: " + "; ".join(list(dict.fromkeys(res["reasons"]))[:4]) + ".") if res["reasons"] else ""
-    advice = {"scam": "\nDon't open links, share OTPs or PINs, or install apps. Block the number. Lost money? Call 1930 (India) or your bank straight away. Reply *report* to warn others.",
+    advice = {"scam": "\nDon't open links, share OTPs or PINs, or install apps. Block the number. " + (help or "Lost money? Call your bank on the number on your card straight away.") + " Reply *report* to warn others.",
               "careful": "\nDon't share OTPs or PINs. If it says it's your bank, call the number on the back of your card instead.",
               "ok": "\nStill, never share an OTP or PIN with anyone, even if they say they're from your bank."}[res["verdict"]]
     res["reply"] = head + why + advice

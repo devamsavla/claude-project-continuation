@@ -136,4 +136,4 @@ def render(slides: list[dict], hue: int | None = None, handle: str = "") -> list
 def caption(topic: str, who: str | None = None) -> str:
     out = llm.chat("Write an Instagram caption (under 60 words, warm, specific, one emoji at most) and then 6 relevant hashtags on a new line, for: "
                    + topic[:600] + "\nSame language as the request. Output only the caption and hashtags.", who=who, max_tokens=200) if llm.live() else None
-    return out or "✍️ My caption writer switches on once my AI is connected. Meanwhile: lead with the benefit, one line of proof, then a clear ask."
+    return out or "My caption writer switches on once my AI is connected. Meanwhile: lead with the benefit, one line of proof, then a clear ask."
