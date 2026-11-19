@@ -184,6 +184,7 @@ async function viewNow(v) {
   v.innerHTML = `
     <header class="top"><div><div class="eyebrow g">${esc(date)}</div><h1 class="big">${hello} <i>${esc((S.me.name || "you").split(" ")[0])}</i></h1></div>
       <a href="#me" aria-label="Your profile">${avatar(S.me, "ring")}</a></header>
+    ${window.MPV ? window.MPV.nowCards(H) : ""}
     <div class="chips" role="group" aria-label="Your status">${STATUSES.map(([k, l]) => `<button class="chip ${S.me.status === k ? "on" : ""}" data-act="status" data-v="${k}">${l}</button>`).join("")}</div>
     <h2 class="sec"><span>${H.friends.length ? `Your people · ${free.length} free` : "Your people"}</span><button data-act="invite">+ INVITE</button></h2>
     ${H.friends.length ? `<div class="people" id="people">${peopleRow()}</div>` : `
@@ -191,7 +192,6 @@ async function viewNow(v) {
       <div class="row" style="margin-top:12px"><button class="btn dark" data-act="invite">Share my invite link</button></div></div>`}
     ${!H.mood ? `<div class="sticker" style="margin-top:18px"><div class="eyebrow">Daily check-in · 5 seconds</div><h3>How's your head today?</h3>
       <div class="faces">${["😫", "😕", "😐", "🙂", "🤩"].map((f, i) => `<button data-act="mood" data-v="${i + 1}" aria-label="mood ${i + 1}">${f}</button>`).join("")}</div></div>` : ""}
-    ${window.MPV ? window.MPV.nowCards(H) : ""}
     ${H.plans.length ? `<h2 class="sec"><span>Plans</span><button onclick="location.hash='plans'">ALL →</button></h2>${H.plans.map(planCard).join("")}` : ""}
     <h2 class="sec"><span>Coming up</span><button onclick="location.hash='mind'">ALL →</button></h2>
     <div class="card">${H.reminders.length ? H.reminders.map(remRow).join("") : `<p class="muted small" style="margin:0">Nothing yet. Tap the bubble and say “remind me to call mum Sunday 7pm”, or send it to Mindy on WhatsApp.</p>`}</div>

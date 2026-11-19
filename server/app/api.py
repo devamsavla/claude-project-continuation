@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from . import brain, care, hooks, llm, skills
+from . import brain, care, countries, hooks, llm, more, neurons, skills
 from .auth import end_session, make_dependency, new_code, new_session, phone_ext, too_many, use_code
 from .config import settings
 from .db import DB, now_iso
@@ -376,14 +376,14 @@ def make_router(db: DB, wa, mindy) -> APIRouter:
         if not k:
             raise HTTPException(422, "Try “Ramesh owes me 500”, “I owe Priya 200”, “paid Sunil 300” or “got 200 from Ramesh”.")
         bal = skills.khata_add(db, me["id"], k, text)
-        return {"entry": k, "balance": bal, "line": skills.balance_line(bal)}
+        return {"entry": k, "balance": bal, "line": skills.balance_line(bal, countries.for_user(db, me)["cur"])}
 
     @r.post("/khata/remind")
     def khata_remind(b: Body, me=Depends(me_dep)):
         bal = skills.khata_balance(db, me["id"], getattr(b, "person", "") or "")
         if bal["balance"] <= 0:
             raise HTTPException(422, "They don't owe you anything right now.")
-        return skills.pay_request(me, bal["person"], bal["balance"], getattr(b, "phone", None))
+        return skills.pay_request(me, bal["person"], bal["balance"], getattr(b, "phone", None), countries.for_user(db, me)["cur"])
 
     # ------------------------------------------------------------ family care
     @r.get("/family")
@@ -492,13 +492,41 @@ def make_router(db: DB, wa, mindy) -> APIRouter:
             raise HTTPException(422, "Say something first.")
         return await mindy_do(me, text)
 
-    async def mindy_do(me, text, chat_id=None):
+    async def mindy_do(me, text, chat_id=None, light=True):
+        """The app's chat with Mindy: every skill the WhatsApp Mindy has, plus neurons lighting up as they're used."""
+        out = await _mindy_do(me, text, chat_id)
+        if light and not chat_id and isinstance(out, dict) and out.get("reply") and not re.match(r"^(Saved to|I couldn't find)", out["reply"]):
+            from .handlers import tidy
+            changed = neurons.fire(db, me["id"], neurons.detect(tidy(text)))
+            if changed:
+                out["reply"] += neurons.celebrate(changed, db, me["id"]).replace("*", "")
+                out["neuron"] = changed[0]
+        return out
+
+    async def _mindy_do(me, text, chat_id=None):
         did, reply = [], None
         plain = re.sub(r"(?i)@?mindy,?\s*", "", text).strip()
+        if not chat_id:  # the newer skills (people, gifts, papers, safety, create…), same as on WhatsApp
+            from .handlers import deliver, tidy
+            mr = await asyncio.to_thread(more.handle, db, me, tidy(plain), mindy.button_key(me))
+            if mr:
+                for uid, body, btns in mr.get("notify") or []:
+                    await deliver(db, uid, body, btns, settings.reminder_template, [re.sub(r"[*_]", "", body)[:900]], title="Mindy", url="/#people")
+                links = list(mr.get("links") or [])
+                if mr.get("app"):
+                    links.append((mr["app"][0], "/#" + mr["app"][1]))
+                res = {"reply": mr["text"].replace("*", ""), "did": [{"kind": "skill"}], "links": links}
+                if mr.get("images"):
+                    res["images"] = mr["images"]
+                if mr.get("buttons"):
+                    res["buttons"] = [{"id": i, "label": l} for i, l in mr["buttons"]]
+                if mr.get("list"):
+                    res["buttons"] = [{"id": x[0], "label": x[1]} for x in mr["list"]]
+                return res
         k = skills.parse_khata(plain)
         if k and not chat_id:
             bal = skills.khata_add(db, me["id"], k, plain)
-            return {"reply": f"📒 Noted. {skills.balance_line(bal)}.", "did": [{"kind": "khata", **k}]}
+            return {"reply": f"📒 Noted. {skills.balance_line(bal, countries.for_user(db, me)['cur'])}.", "did": [{"kind": "khata", **k}]}
         d = skills.do_it(plain)
         if d:
             return {"reply": d["reply"].replace("*", ""), "did": [{"kind": "link"}], "links": d["links"]}

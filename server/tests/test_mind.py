@@ -509,3 +509,51 @@ def test_fumbles_page():
     send(ext, "blorp the frobnicator")
     page = client.get(f"/admin/fumbles?key={settings.admin_key}").text
     assert "blorp the frobnicator" in page and "fumbled" in page
+
+
+def test_the_mind_map():
+    """48 neurons on 8 branches light up as they're used; one tap to try; demos never message anyone; app and WhatsApp share it."""
+    from app import neurons
+    assert len(neurons.NODES) == 48 and len(neurons.BRANCHES) == 8
+    for b in neurons.BRANCHES:
+        assert sum(1 for n in neurons.NODES.values() if n["branch"] == b[0]) == 6, b
+    assert "scam" in neurons.detect("is this a scam?") and "scam" not in neurons.detect("https://instagram.com/reel/x")
+    ext = "447700900401"
+    send(ext, "hi", name="Neha")
+    u = user_of(ext)
+    send(ext, "mind")
+    raw = str(wa.outbox)
+    assert "People" in raw and "Money" in raw and "Try" in raw and "br:money" in raw
+    tap(ext, "br:money")
+    assert "nr:" in str(wa.outbox) and "○" in str(wa.outbox)
+    # a demo neuron: a preview, nothing sent to anyone else, but it lights
+    before = db.one("SELECT COUNT(*) n FROM m2m WHERE from_uid=?", (u["id"],))["n"]
+    demos = [k for k, n in neurons.NODES.items() if n["try"][0] == "demo"]
+    out = tap(ext, "nr:" + demos[0])
+    assert "preview" in out.lower() and "New neuron lit" in out
+    assert all(m.get("to", ext) == ext for m in wa.outbox)
+    assert db.one("SELECT COUNT(*) n FROM m2m WHERE from_uid=?", (u["id"],))["n"] == before
+    # using a skill in plain words lights its neuron; milestones only at round numbers
+    send(ext, "remind me to water plants tomorrow at 9am")
+    m = neurons.mind_map(db, u)
+    lit = {n["id"] for b in m["branches"] for n in b["nodes"] if n["state"] != "dark"}
+    assert len(lit) >= 2 and m["lit"] == len(lit) and m["spark"] and m["spark"]["id"] not in lit
+    for _ in range(3):
+        neurons.fire(db, u["id"], [demos[0]])
+    assert neurons.mind_map(db, u)["wired"] >= 1
+    # the app: map + one-tap try
+    h = signin("+" + ext)
+    mp = client.get("/api/mind/map", headers=h).json()
+    assert mp["total"] == 48 and len(mp["branches"]) == 8 and "score" in mp
+    cmd = next(k for k, n in neurons.NODES.items() if n["try"][0] == "cmd" and not n["try"][1].startswith("menu:") and k not in lit)
+    r = client.post(f"/api/neurons/{cmd}/try", headers=h, json={}).json()
+    assert r["kind"] == "did" and r["reply"] and r["lit"] and r["map"]["lit"] == mp["lit"] + 1
+    r = client.post(f"/api/neurons/{demos[2]}/try", headers=h, json={}).json()
+    assert r["kind"] == "demo" and "nothing was sent" in r["note"].lower()
+    assert client.post("/api/neurons/nope/try", headers=h, json={}).status_code == 404
+    # the app's chat now reaches the newer skills too, and lights neurons
+    r = client.post("/api/think", headers=h, json={"text": "is this a scam? your parcel is held, pay £1.99 at royalmail-redelivery.top"}).json()
+    assert "scam" in r["reply"].lower() or "careful" in r["reply"].lower() or "don't" in r["reply"].lower()
+    assert db.one("SELECT uses FROM neurons WHERE user_id=? AND node='scam'", (u["id"],))
+    # brain score counts neurons
+    assert "neurons lit" in more.brain_score(db, u)["parts"]

@@ -67,9 +67,93 @@ function mountBrain(canvas, data, onPick) {
   return { select(r) { sel = r; auto = false; }, update(regions) { regions.forEach(r => fill[r.id] = r.fill); }, stop() { cancelAnimationFrame(raf); } };
 }
 
+
+// ---------------------------------------------------------------- the mind map: 8 branches, 48 neurons. Dark until you use them.
+const BR_COL = { people: "#25D366", memory: "#C7B8FF", time: "#9FF7FF", money: "#FFE29A", family: "#FFB8E8", safety: "#FF9DB0", papers: "#F5F3EE", create: "#8FD3FF" };
+function mapSVG(D, focus) {
+  const C = 200, rad = d => (d - 90) * Math.PI / 180, pt = (a, r) => [C + r * Math.cos(rad(a)), C + r * Math.sin(rad(a))];
+  let lines = "", dots = "", labels = "";
+  D.branches.forEach((b, i) => {
+    const a = i * 45, col = BR_COL[b.id], dim = focus && focus !== b.id;
+    const [bx, by] = pt(a, 86), [cx1, cy1] = pt(a + 14, 46);
+    const on = b.lit > 0;
+    lines += `<path d="M${C} ${C} Q${cx1.toFixed(1)} ${cy1.toFixed(1)} ${bx.toFixed(1)} ${by.toFixed(1)}" stroke="${on ? col : "#2A3238"}" stroke-width="${on ? 2.6 : 1.6}" fill="none" opacity="${dim ? .25 : on ? .9 : .7}"/>`;
+    b.nodes.forEach((n, j) => {
+      const off = (j - 2.5) * 7.4, r = j % 2 ? 176 : 148, [nx, ny] = pt(a + off, r), [mx, my] = pt(a + off * .45, 118);
+      const st = n.state, c = st === "dark" ? "#3A434A" : col;
+      lines += `<path d="M${bx.toFixed(1)} ${by.toFixed(1)} Q${mx.toFixed(1)} ${my.toFixed(1)} ${nx.toFixed(1)} ${ny.toFixed(1)}" stroke="${c}" stroke-width="${st === "wired" ? 2 : 1}" fill="none" opacity="${dim ? .2 : st === "dark" ? .55 : .8}" ${st === "dark" ? 'stroke-dasharray="2 3"' : ""}/>`;
+      dots += `<g class="nr ${st}${D.spark && D.spark.id === n.id ? " spark" : ""}" data-n="${n.id}" opacity="${dim ? .3 : 1}" role="button" tabindex="0" aria-label="${n.name}, ${st}">
+        <circle cx="${nx.toFixed(1)}" cy="${ny.toFixed(1)}" r="15" fill="transparent"/>
+        ${st === "wired" ? `<circle cx="${nx.toFixed(1)}" cy="${ny.toFixed(1)}" r="11" fill="${col}" opacity=".22"/>` : ""}
+        <circle cx="${nx.toFixed(1)}" cy="${ny.toFixed(1)}" r="${st === "wired" ? 7 : st === "sparked" ? 5.5 : 4.5}" fill="${st === "dark" ? "#0B0E10" : col}" stroke="${st === "dark" ? "#59636B" : col}" stroke-width="1.4"/></g>`;
+    });
+    dots += `<g class="brn" data-br="${b.id}" role="button" tabindex="0" aria-label="${b.name} branch, ${b.lit} of 6 lit" opacity="${dim ? .35 : 1}">
+      <circle cx="${bx.toFixed(1)}" cy="${by.toFixed(1)}" r="19" fill="#0B0E10" stroke="${on ? col : "#3A434A"}" stroke-width="2"/>
+      <text x="${bx.toFixed(1)}" y="${(by + 6).toFixed(1)}" text-anchor="middle" font-size="16">${b.emoji}</text></g>`;
+    const lx = bx, ly = by + 28;
+    labels += `<text x="${lx.toFixed(1)}" y="${(ly + 3).toFixed(1)}" text-anchor="middle" stroke="#000" stroke-width="3" paint-order="stroke" font-size="8.5" font-weight="700" fill="${on ? col : "#6B747B"}" opacity="${dim ? .3 : 1}" letter-spacing=".06em">${b.name.toUpperCase()}</text>`;
+  });
+  return `<svg viewBox="-6 -6 412 412" class="mindmap" aria-label="Your mind map">${lines}
+    <circle cx="${C}" cy="${C}" r="34" fill="#0B0E10" stroke="#25D366" stroke-width="2"/>
+    <text x="${C}" y="${C - 2}" text-anchor="middle" font-size="19" font-weight="800" fill="#F5F3EE">${D.lit}</text>
+    <text x="${C}" y="${C + 13}" text-anchor="middle" font-size="8" fill="#8C959D" letter-spacing=".08em">OF ${D.total} LIT</text>${dots}<g pointer-events="none">${labels}</g></svg>`;
+}
+
+V.mindmap = async function (host, opts = {}) {
+  const { esc, api, toast, sheet, closeSheet } = M();
+  let D, focus = opts.focus || null;
+  try { D = await api("/mind/map"); } catch (e) { host.innerHTML = ""; return; }
+  const find = id => { for (const b of D.branches) for (const n of b.nodes) if (n.id === id) return [n, b]; return [null, null]; };
+  function draw() {
+    const fb = focus && D.branches.find(b => b.id === focus);
+    const sp = D.spark;
+    host.innerHTML = `${mapSVG(D, focus)}
+      <div class="mm-key small muted"><span><i class="k dark"></i>dark</span><span><i class="k sparked"></i>sparked · tried once</span><span><i class="k wired"></i>wired · 3+ times</span></div>
+      ${fb ? `<div class="card"><div class="row"><div class="grow"><div class="eyebrow" style="color:${BR_COL[fb.id]}">${fb.emoji} ${esc(fb.name)} · ${fb.lit}/6 lit</div>
+          <div class="small muted">${esc(fb.line)}</div></div><button class="btn sm ghost" data-all>All</button></div>
+          ${fb.nodes.map(n => `<button class="list-item nrow" data-n="${n.id}"><span class="dotk ${n.state}" style="--c:${BR_COL[fb.id]}"></span>
+            <div class="grow" style="text-align:left"><b>${n.emoji} ${esc(n.name)}</b><div class="small muted">${esc(n.why)}${n.rare != null && n.state === "wired" ? ` · only ${n.rare}% have this wired` : ""}</div></div>
+            <span class="small ${n.state === "dark" ? "g" : "muted"}">${n.state === "dark" ? "TRY →" : n.state === "wired" ? "⚡" : "✓"}</span></button>`).join("")}</div>`
+        : sp ? `<button class="sticker spark-card" data-n="${sp.id}"><div class="eyebrow">Today's spark</div>
+          <h3 style="margin:6px 0 4px">${sp.emoji} ${esc(sp.name)}</h3><div>${esc(sp.why)}</div>
+          <div class="small" style="margin-top:8px;opacity:.7">${sp.left_in_branch} still dark on this branch · one tap, no typing</div></button>` : ""}`;
+    host.querySelectorAll("[data-n]").forEach(el => { el.onclick = () => open(el.dataset.n); el.onkeydown = e => { if (e.key === "Enter") open(el.dataset.n); }; });
+    host.querySelectorAll("[data-br]").forEach(el => { el.onclick = () => { focus = focus === el.dataset.br ? null : el.dataset.br; draw(); }; el.onkeydown = e => { if (e.key === "Enter") el.onclick(); }; });
+    const all = host.querySelector("[data-all]"); if (all) all.onclick = () => { focus = null; draw(); };
+    if (opts.onChange) opts.onChange(D);
+  }
+  function open(id) {
+    const [n, b] = find(id); if (!n) return;
+    sheet(`<div class="eyebrow" style="color:${BR_COL[b.id]}">${b.emoji} ${esc(b.name)} · ${n.state === "dark" ? "dark" : n.state === "wired" ? "⚡ wired" : "sparked"}</div>
+      <h2 style="margin:6px 0">${n.emoji} ${esc(n.name)}</h2><p class="muted" style="margin-top:0">${esc(n.why)}</p>
+      <div id="tryout"></div>
+      <button class="btn" data-try style="width:100%;margin-top:8px">${n.kind === "demo" ? "👀 See it happen" : n.state === "dark" ? "⚡ Try it. One tap" : "Do it again"}</button>
+      ${n.kind === "demo" ? `<div class="small muted" style="margin-top:8px;text-align:center">A preview. Nothing gets sent to anyone.</div>` : ""}`);
+    const btn = document.querySelector("#overlay [data-try]"), out = document.querySelector("#overlay #tryout");
+    btn.onclick = async () => {
+      btn.disabled = true; btn.textContent = "…";
+      try {
+        const r = await api(`/neurons/${id}/try`, { body: {} });
+        if (r.kind === "open") { closeSheet(); focus = r.to; }
+        else if (r.kind === "demo") out.innerHTML = `<div class="card demo">${r.preview.split("\n").filter(Boolean).map(l => `<div class="small" style="margin:4px 0">${esc(l)}</div>`).join("")}</div>`;
+        else out.innerHTML = `<div class="card"><div class="small muted">You: “${esc(r.said)}”</div><div style="margin-top:6px;white-space:pre-wrap">${esc((r.reply || "Done.").replace(/\n\n[✨⚡].*$/s, ""))}</div>
+          ${(r.links || []).slice(0, 2).map(([l, u]) => `<a class="btn sm ghost" style="margin:8px 6px 0 0" href="${esc(u)}" target="_blank" rel="noopener">${esc(l)}</a>`).join("")}
+          ${(r.images || []).slice(0, 3).map(u => `<img src="${esc(u)}" alt="" style="width:31%;border-radius:10px;margin:6px 1% 0 0">`).join("")}</div>`;
+        D = r.map;
+        btn.disabled = false;
+        btn.textContent = r.lit ? (n.state === "dark" ? "✨ Neuron lit · close" : "⚡ Wired · close") : "Close";
+        btn.onclick = () => closeSheet();
+        if (r.lit) toast(n.state === "dark" ? `✨ ${n.name} lit` : `⚡ ${n.name} wired`, `${D.lit}/${D.total} neurons lit`);
+        draw();
+      } catch (e) { btn.disabled = false; btn.textContent = "Try again"; toast(e.message); }
+    };
+  }
+  draw();
+};
+
 // ---------------------------------------------------------------- Brain screen
 let brainCtl = null;
-V.brain = async function (v) {
+V.brain = async function (v, arg) {
   const { esc, api, toast, mindy } = M();
   if (brainCtl) brainCtl.stop();
   v.innerHTML = `<div class="empty">${mindy("think", 90)}</div>`;
@@ -79,6 +163,8 @@ V.brain = async function (v) {
     <header class="top"><div><div class="eyebrow g">Your mind</div><h1 class="big">${B.score}<i style="font-size:22px"> / 1000</i></h1>
       <div class="small muted">${esc(B.level)} · ${esc(D.mindy.name)} knows you ${Math.round(D.score)}%</div></div>
       <button class="btn sm ghost" data-b="share">Share</button></header>
+    <div id="mapbox"></div>
+    <h2 class="sec"><span>What ${esc(D.mindy.name)} knows about you</span></h2>
     <canvas id="brain" style="width:100%;display:block;touch-action:none;margin-top:6px" aria-label="Your brain. Tap a glowing area."></canvas>
     <div class="chips" id="regions" role="group" aria-label="Areas of your mind">${D.regions.map(r =>
       `<button class="chip" data-reg="${r.id}" style="border-color:${REG_COL[r.id]}55">${esc(r.label)} <span class="muted">${Math.round(r.fill * 100)}%</span></button>`).join("")}</div>
@@ -97,6 +183,7 @@ V.brain = async function (v) {
     <h2 class="sec"><span>Your Mindy</span></h2>
     <div class="card" id="mymindy"></div>`;
   brainCtl = mountBrain(v.querySelector("#brain"), D, reg => showQ(reg));
+  V.mindmap(v.querySelector("#mapbox"), { focus: arg || null, onChange: m => { const h = v.querySelector("h1.big"); if (h && m.score != null) h.firstChild.nodeValue = m.score; } });
   renderMindy(v.querySelector("#mymindy"), D.mindy);
   const qcard = v.querySelector("#qcard");
   async function showQ(reg) {
@@ -275,18 +362,16 @@ V.people = async function (v) {
   }));
 };
 
-// ---------------------------------------------------------------- the brain card on Now
+// ---------------------------------------------------------------- Now opens on your mind
 const prevNow = V.nowCards;
 V.nowCards = function (H) {
   const html = prevNow ? prevNow(H) : "";
   setTimeout(async () => {
     const el = document.getElementById("braincard"); if (!el) return;
-    try { const b = await M().api("/brain");
-      el.innerHTML = `<a href="#brain" class="card" style="display:flex;align-items:center;gap:14px;text-decoration:none"><div style="font-size:34px">🧠</div>
-        <div class="grow"><div class="eyebrow g">Brain score</div><b style="font-size:24px">${b.score}</b> <span class="small muted">${M().esc(b.level)}</span>
-        ${b.next ? `<div class="small muted">💭 ${M().esc(b.next.q)}</div>` : ""}</div><span class="muted">→</span></a>`
-        + `<a href="#people" class="card" style="display:flex;align-items:center;gap:14px;text-decoration:none"><div style="font-size:34px">🤝</div>
-        <div class="grow"><div class="eyebrow g">Mindy to Mindy</div><b>Your people</b><div class="small muted">Ask for money, make plans, check in. In taps.</div></div><span class="muted">→</span></a>`;
+    try {
+      const b = await M().api("/brain");
+      el.innerHTML = `<h2 class="sec"><span>Your mind · ${b.score} / 1000</span><button onclick="location.hash='brain'">OPEN →</button></h2><div id="nowmap"></div>`;
+      V.mindmap(el.querySelector("#nowmap"));
     } catch (_) { el.remove(); }
   }, 0);
   return `<div id="braincard"></div>` + html;

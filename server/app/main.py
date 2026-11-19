@@ -62,8 +62,9 @@ app = FastAPI(title="whatsonyourmind", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=settings.allowed_origins, allow_methods=["GET", "POST", "PATCH", "DELETE"], allow_headers=["*"])
 
 
-app.include_router(make_router(db, wa, mindy))
-app.include_router(make_more_router(db, mindy))
+_api = make_router(db, wa, mindy)
+app.include_router(_api)
+app.include_router(make_more_router(db, mindy, getattr(_api, "mindy_do", None)))
 
 
 @app.websocket("/ws")
