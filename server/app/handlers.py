@@ -767,6 +767,10 @@ async def weekly_summary(db: DB, now: datetime | None = None):
     rows = db.q("SELECT u.id, COUNT(i.id) AS saved FROM users u JOIN items i ON i.user_id=u.id WHERE i.created_at>=? GROUP BY u.id", (since,))
     for r in rows:
         upcoming = len(db.upcoming(r["id"], 50))
-        await deliver(db, r["id"], f"🧠 *Your week with Mindy*\n{r['saved']} things saved, {upcoming} reminders coming up.",
+        from . import m2m
+        u = db.one("SELECT * FROM users WHERE id=?", (r["id"],))
+        handled = m2m.handled(db, u)
+        extra = ("\n" + "\n".join(f"{x['icon']} {x['n']} {x['label']}" for x in handled["rows"])) if handled["rows"] else ""
+        await deliver(db, r["id"], f"🧠 *Your week with Mindy*\n{r['saved']} things saved, {upcoming} reminders coming up.{extra}",
                       [("upcoming", "See reminders"), ("help", "What else?")], "mindy_weekly", [str(r["saved"]), str(upcoming)], now)
     return len(rows)

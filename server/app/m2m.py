@@ -18,6 +18,7 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS m2m(id INTEGER PRIMARY KEY, from_uid INTEGER, to_uid INTEGER, kind TEXT, text TEXT, amount REAL,
   status TEXT DEFAULT 'open', answer TEXT, created_at TEXT, answered_at TEXT);
 CREATE TABLE IF NOT EXISTS m2m_mute(user_id INTEGER, other INTEGER, PRIMARY KEY(user_id, other));
+CREATE TABLE IF NOT EXISTS m2m_group(id INTEGER PRIMARY KEY, from_uid INTEGER, question TEXT, options TEXT, created_at TEXT, closed INTEGER DEFAULT 0);
 """
 KINDS = {
     "money": [("paid", "✅ Paid"), ("tomorrow", "⏰ Tomorrow"), ("talk", "💬 Let's talk")],
@@ -32,6 +33,8 @@ ANSWER_TEXT = {"paid": "says it's *paid* ✅", "tomorrow": "will pay *tomorrow* 
 def init(db: DB):
     with db.lock:
         db.conn.executescript(SCHEMA)
+        if "group_id" not in {r[1] for r in db.conn.execute("PRAGMA table_info(m2m)").fetchall()}:
+            db.conn.execute("ALTER TABLE m2m ADD COLUMN group_id INTEGER")
         db.conn.commit()
 
 
@@ -137,6 +140,9 @@ def handle(db: DB, user: dict, text: str) -> dict | None:
     if m and (p := find(db, user["id"], m.group(1))):
         db.x("DELETE FROM m2m_mute WHERE user_id=? AND other=?", (user["id"], p["id"]))
         return R(f"🔔 {p['name']} can reach your Mindy again.")
+    g = group_ask(db, user, t)
+    if g:
+        return g
     kind = name = body = None
     amount = None
     if m := ASK_MONEY.match(t):
@@ -180,6 +186,8 @@ def on_button(db: DB, user: dict, bid: str) -> dict | None:
         return R("👍")
     if r["status"] != "open":
         return R("Already answered. 👍")
+    if r["kind"] == "poll":
+        return poll_answer(db, user, r, ans)
     db.x("UPDATE m2m SET status='answered', answer=?, answered_at=? WHERE id=?", (ans, now_iso(), r["id"]))
     me = user.get("name") or "They"
     what = f" (about {r['text']})" if r["kind"] == "money" else ""
@@ -223,3 +231,109 @@ def _col(db, table, col):
         return any(r[1] == col for r in db.conn.execute(f"PRAGMA table_info({table})").fetchall())
     except Exception:
         return False
+
+
+# ---------------------------------------------------------------- group asks: one question to many Mindys
+DAYS = {"mon": "Monday", "tue": "Tuesday", "wed": "Wednesday", "thu": "Thursday", "fri": "Friday", "sat": "Saturday", "sun": "Sunday"}
+GROUP_RX = re.compile(r"^ask\s+(everyone|everybody|all|the group|all my people|(?:[a-z][a-z' ]{0,20}?)(?:\s*,\s*[a-z][a-z' ]{0,20}?)*(?:\s*,?\s+and\s+[a-z][a-z' ]{0,20}?))\s+"
+                      r"(which|what|when|if|whether|are|is|can|could|do|does|will)\b\s*(.+)$", re.I)
+
+
+def options_from(q: str) -> tuple[str, list[str]]:
+    """'which night works: fri, sat or sun' -> ('Which night works?', ['Friday', 'Saturday', 'Sunday'])."""
+    q = q.strip().rstrip("?").strip()
+    head, opts = q, []
+    m = re.search(r"[:\-–]\s*(.+)$", q) or re.search(r"\b(?:between|from)\s+(.+)$", q)
+    if m:
+        head = q[:m.start()].strip()
+        opts = [o.strip() for o in re.split(r",|/|\bor\b|\band\b", m.group(1)) if o.strip()]
+    elif re.search(r"\b(night|day|evening|weekend|date|time)\b", q, re.I):
+        opts = ["Friday", "Saturday", "Sunday"]
+    opts = [DAYS.get(o.lower()[:3], o[:20]) if o.lower()[:3] in DAYS and len(o) <= 9 else o[:20] for o in opts][:3]
+    return head, opts
+
+
+def group_ask(db: DB, user: dict, text: str) -> dict | None:
+    m = GROUP_RX.match(text.strip())
+    if not m:
+        return None
+    who, verb, rest = m.group(1).strip(), m.group(2), m.group(3)
+    people = linked(db, user["id"])
+    if who.lower() in ("everyone", "everybody", "all", "the group", "all my people"):
+        targets, missing = people, []
+    else:
+        names = [n.strip() for n in re.split(r",|\band\b", who) if n.strip()]
+        if len(names) < 2:
+            return None  # one person: the single ask handles it
+        found = [(n, find(db, user["id"], n)) for n in names]
+        targets, missing = [p for _, p in found if p], [n.title() for n, p in found if not p]
+    if not targets:
+        return R("🤝 You haven't linked anyone yet. Say _my link_ and send it to your friends; when they tap it, your Mindys can talk.")
+    head, opts = options_from(f"{verb} {rest}")
+    head = re.sub(r"\b(they|they're|their|we|we're|our)\b", lambda x: {"they": "you", "they're": "you're", "their": "your", "we": "we", "we're": "we're", "our": "our"}[x.group(1).lower()], head, flags=re.I)
+    head = re.sub(r"\b(he|she)\b", "you", head, flags=re.I)
+    head = re.sub(r"^(if|whether)\s+you\s+are\b", "are you", head, flags=re.I)
+    head = re.sub(r"^(if|whether)\s+you('re)?\b", lambda x: "are you" if x.group(2) else "do you", head, flags=re.I)
+    q = head[0].upper() + head[1:] + "?"
+    return start_poll(db, user, targets, q, opts, missing)
+
+
+def start_poll(db: DB, user: dict, targets: list[dict], q: str, opts: list[str], missing: list[str] | None = None) -> dict:
+    import json
+    opts = opts or ["Yes", "No"]
+    gid = db.x("INSERT INTO m2m_group(from_uid,question,options,created_at) VALUES(?,?,?,?)", (user["id"], q, json.dumps(opts), now_iso()))
+    me = user.get("name") or "Your friend"
+    notify = []
+    for p in targets:
+        if db.one("SELECT 1 FROM m2m_mute WHERE user_id=? AND other=?", (p["id"], user["id"])):
+            continue
+        mid = db.x("INSERT INTO m2m(from_uid,to_uid,kind,text,created_at,group_id) VALUES(?,?,?,?,?,?)", (user["id"], p["id"], "poll", q, now_iso(), gid))
+        btns = [(f"m2m:{mid}:o{i}", o[:20]) for i, o in enumerate(opts)]
+        if len(btns) < 3:
+            btns.append((f"m2m:{mid}:none", "None work" if len(opts) > 2 or opts != ["Yes", "No"] else "Not sure"))
+        notify.append((p["id"], f"🗳️ *{me}'s Mindy here.* {me} is asking {len(targets)} people: {q}", btns[:3]))
+    names = ", ".join(p["name"].split(" ")[0] for p in targets)
+    extra = f"\nI couldn't reach {', '.join(missing)}: they're not linked with you yet. Say _my link_ to invite them." if missing else ""
+    return R(f"🗳️ Asked {len(notify)} Mindys ({names}): *{q}*\nI'll tell you as answers come in, and the moment there's a winner.{extra}", notify=notify)
+
+
+def tally(db: DB, gid: int) -> dict:
+    import json
+    g = db.one("SELECT * FROM m2m_group WHERE id=?", (gid,))
+    opts = json.loads(g["options"])
+    rows = db.q("SELECT m.*, u.name FROM m2m m JOIN users u ON u.id=m.to_uid WHERE group_id=?", (gid,))
+    votes = {o: [] for o in opts}
+    for r in rows:
+        if r["answer"] and r["answer"].startswith("o"):
+            votes[opts[int(r["answer"][1:])]].append((r["name"] or "?").split(" ")[0])
+    waiting = [(r["name"] or "?").split(" ")[0] for r in rows if r["status"] == "open"]
+    return {"group": g, "opts": opts, "votes": votes, "waiting": waiting, "total": len(rows)}
+
+
+def tally_text(t: dict) -> str:
+    lines = [f"{'✅' if v and len(v) == t['total'] else '•'} {o}: {len(v)}" + (f" ({', '.join(v)})" if v else "") for o, v in t["votes"].items()]
+    return "\n".join(lines) + (f"\n⏳ Waiting for {', '.join(t['waiting'])}" if t["waiting"] else "")
+
+
+def poll_answer(db: DB, user: dict, r: dict, ans: str) -> dict:
+    import json
+    g = db.one("SELECT * FROM m2m_group WHERE id=?", (r["group_id"],))
+    opts = json.loads(g["options"])
+    if ans != "none" and not (ans.startswith("o") and ans[1:].isdigit() and int(ans[1:]) < len(opts)):
+        return R("👍")
+    db.x("UPDATE m2m SET status='answered', answer=?, answered_at=? WHERE id=?", (ans, now_iso(), r["id"]))
+    me = (user.get("name") or "Someone").split(" ")[0]
+    t = tally(db, g["id"])
+    picked = "none of them" if ans == "none" else opts[int(ans[1:])]
+    head = f"🗳️ *{g['question']}*\n{me} picked *{picked}*.\n\n"
+    if not t["waiting"]:
+        db.x("UPDATE m2m_group SET closed=1 WHERE id=?", (g["id"],))
+        best = max(t["votes"].items(), key=lambda kv: len(kv[1]))
+        if len(best[1]) == t["total"]:
+            head = f"🎉 *{best[0]}* works for everyone! ({g['question']})\n\n"
+        elif best[1]:
+            head = f"🗳️ Everyone answered. *{best[0]}* works for the most people ({len(best[1])} of {t['total']}).\n\n"
+        else:
+            head = "🗳️ Everyone answered, but no option worked for anyone. Try other options?\n\n"
+    return R(f"Got it: *{picked}*. I've told {(db.one('SELECT name FROM users WHERE id=?', (g['from_uid'],)) or {}).get('name') or 'them'}. 👍",
+             notify=[(g["from_uid"], head + tally_text(t), [])])

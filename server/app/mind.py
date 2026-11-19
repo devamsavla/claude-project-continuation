@@ -212,7 +212,7 @@ def monthly_reminder(db: DB, user: dict, text: str, day: int, hour: int = 9) -> 
 
 # ---------------------------------------------------------------- answering
 UNLOCK = {
-    "save": "I'll check in every Sunday with how you're doing, and flag money leaks I notice (subscriptions, late fees).",
+    "save": "Send me a bank statement any time and I'll show you where the money went.",
     "fit": "I'll nudge you at a sensible time each day and keep your streak.",
     "study": "Send me any notes or photos of questions, and I'll quiz you and give hints, not answers.",
     "job": "Send me job messages before you reply: fake recruiters asking for fees are everywhere. I'll check each one.",
@@ -257,11 +257,7 @@ def answer(db: DB, user: dict, key: str, value: str) -> dict:
         reply = f"💚 {name.title()} is in your family tree."
     elif key == "goal":
         db.x("INSERT INTO goals(user_id,title,created_at) VALUES(?,?,?)", (uid, dict(QBY["goal"]["opts"]).get(value, value).split(" ", 1)[-1], now_iso()))
-        z = ZoneInfo(user.get("tz") or "UTC")
-        now = datetime.now(z)
-        sun = now + timedelta(days=(6 - now.weekday()) % 7 or 7)
-        db.add_reminder(uid, "Weekly check-in: how did your goal go this week? Reply 1 to 5.", sun.replace(hour=18, minute=0, second=0, microsecond=0).astimezone(timezone.utc).isoformat(), "weekly")
-        reply = "🎯 Goal set. " + UNLOCK.get(value, "")
+        reply = "🎯 Goal set. Every Sunday evening I'll ask how it went, with one tap. " + UNLOCK.get(value, "")
     elif key == "habit":
         db.x("INSERT INTO habits(user_id,title,created_at) VALUES(?,?,?)", (uid, value, now_iso()))
         reply = f"✅ Habit: *{value}*. Reply *done* any day you do it and I'll keep your streak."

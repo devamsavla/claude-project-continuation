@@ -80,7 +80,7 @@ def test_mindy_asks_and_unlocks():
         settings.ask_questions = False
     u = user_of(ext)
     assert mind.facts(db, u["id"])["goal"] == "save"
-    assert db.one("SELECT COUNT(*) n FROM reminders WHERE user_id=? AND repeat='weekly'", (u["id"],))["n"] == 1
+    assert db.one("SELECT COUNT(*) n FROM goals WHERE user_id=?", (u["id"],))["n"] == 1
     # the pet question: typed answer, then Mindy asks for the name
     db.x("INSERT OR REPLACE INTO kv(k,v) VALUES(?,?)", (f"await_q:{u['id']}", "pet"))
     out = send(ext, "Bruno")
@@ -330,3 +330,78 @@ def test_m2m_in_the_app():
     sent = client.get("/api/m2m", headers=ha).json()["sent"]
     assert sent[0]["status"] == "answered" and "Paid" in sent[0]["answer"]
     assert client.post("/api/m2m/send", headers=ha, json={"to": 999999, "kind": "ask", "text": "hello there"}).status_code == 400
+
+
+def test_group_asks():
+    from app import m2m
+    me, a, b, c = "447700900330", "447700900331", "447700900332", "447700900333"
+    for ext, n in ((me, "Dev"), (a, "Rahul"), (b, "Priya"), (c, "Sam")):
+        send(ext, "hi", name=n)
+    um = user_of(me)
+    code = m2m.invite_code(db, um["id"])
+    for ext in (a, b, c):
+        send(ext, f"join {code}")
+    wa.outbox.clear()
+    out = send(me, "ask everyone which night works: fri, sat or sun")
+    assert "Asked 3 Mindys" in out and "Which night works?" in out
+    got = {m["to"]: body(m) for m in wa.outbox if m.get("to") in (a, b, c)}
+    assert len(got) == 3 and all("Friday" in v or "m2m:" in v for v in got.values())
+    mids = {r["to_uid"]: r["id"] for r in db.q("SELECT * FROM m2m WHERE kind='poll' AND from_uid=?", (um["id"],))}
+    wa.outbox.clear()
+    tap(a, f"m2m:{mids[user_of(a)['id']]}:o1")
+    tap(b, f"m2m:{mids[user_of(b)['id']]}:o1")
+    wa.outbox.clear()
+    tap(c, f"m2m:{mids[user_of(c)['id']]}:o1")
+    final = " ".join(body(m) for m in wa.outbox if m.get("to") == me)
+    assert "Saturday* works for everyone" in final
+    # yes/no to named people, with one not linked
+    wa.outbox.clear()
+    out = send(me, "ask Rahul, Priya and Zed if they're free tomorrow")
+    assert "Asked 2 Mindys" in out and "couldn't reach Zed" in out
+    assert any("Are you free tomorrow?" in body(m) for m in wa.outbox if m.get("to") == a)
+    # the app sees polls and can start one
+    h = signin("+" + me)
+    d = client.get("/api/m2m", headers=h).json()
+    assert d["polls"] and "Saturday" in d["polls"][-1]["text"] or d["polls"][0]
+    r = client.post("/api/m2m/group", headers=h, json={"question": "lunch on Sunday", "options": []})
+    assert r.status_code == 200 and "Asked 3" in r.json()["reply"]
+    inbox = client.get("/api/m2m", headers=signin("+" + a)).json()["inbox"]
+    assert any(x["kind"] == "poll" and x["taps"][0]["label"] == "Yes" for x in inbox)
+
+
+def test_promises_kept(monkeypatch):
+    """Things Mindy says it will do: Sunday goal check-ins, 3-day gift nudges, the monthly gratitude card, pet and tax reminders."""
+    from zoneinfo import ZoneInfo
+    ext = "447700900340"
+    send(ext, "hi", name="Lena")
+    u = user_of(ext)
+    tap(ext, "q:goal:fit")
+    sent = []
+
+    async def fake_deliver(db_, uid, body_, buttons, template, params, now=None, **kw):
+        sent.append((uid, body_, buttons, template))
+    monkeypatch.setattr(jobs, "_deliver", fake_deliver)
+    sunday = datetime(2026, 11, 22, 18, 5, tzinfo=ZoneInfo(u["tz"] or "UTC")).astimezone(timezone.utc)
+    asyncio.run(jobs.goal_checkins(db, sunday))
+    asyncio.run(jobs.goal_checkins(db, sunday))  # only once
+    asks = [x for x in sent if x[0] == u["id"]]
+    assert len(asks) == 1 and asks[0][2][2][0] == "goal:5" and asks[0][3]  # paid template allowed: the person set this goal
+    assert "4/5" in send(ext, "4")
+    assert "5/5" in tap(ext, "goal:5")
+    # 3-day birthday nudge with what they love
+    db.add_occasion(u["id"], "Maya", "birthday", (sunday + timedelta(days=3)).month, (sunday + timedelta(days=3)).day)
+    db.x("INSERT INTO people(user_id,name,relation,gift_ideas,created_at) VALUES(?,?,?,?,?)", (u["id"], "Maya", "friend", "plants, jazz", "2026-01-01"))
+    sent.clear()
+    asyncio.run(jobs.gift_nudges(db, sunday))
+    assert any("Maya's birthday is in 3 days" in x[1] and "plants, jazz" in x[1] and x[3] is None for x in sent)
+    # gratitude card on the 1st
+    send(ext, "grateful for sunshine")
+    send(ext, "grateful for my sister")
+    db.x("UPDATE items SET created_at='2026-11-10T10:00:00+00:00' WHERE user_id=? AND collection='Gratitude'", (u["id"],))
+    sent.clear()
+    asyncio.run(jobs.gratitude_cards(db, datetime(2026, 12, 1, 10, 40, tzinfo=timezone.utc)))
+    card = [x[1] for x in sent if x[0] == u["id"]]
+    assert card and "November" in card[0] and "my sister" in card[0]
+    # pet and tax deadlines
+    assert "Bruno's vaccine" in send(ext, "Bruno vaccine 3 Jan")
+    assert "Deadline saved" in send(ext, "tax deadline 31 January")

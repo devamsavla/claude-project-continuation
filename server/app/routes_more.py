@@ -269,14 +269,22 @@ def make_more_router(db: DB, mindy) -> APIRouter:
         from urllib.parse import quote
         names = {p["id"]: p["name"] for p in m2m.linked(db, me["id"])}
         who = lambda uid: names.get(uid) or (db.one("SELECT name FROM users WHERE id=?", (uid,)) or {}).get("name") or "Someone"
-        inbox = [{"id": x["id"], "from": who(x["from_uid"]), "kind": x["kind"], "text": x["text"],
-                  "taps": [{"value": a, "label": l} for a, l in m2m.KINDS[x["kind"]]]}
+        import json as _j
+
+        def taps(x):
+            if x["kind"] != "poll":
+                return [{"value": a, "label": l} for a, l in m2m.KINDS[x["kind"]]]
+            g = db.one("SELECT options FROM m2m_group WHERE id=?", (x["group_id"],))
+            return [{"value": f"o{i}", "label": o} for i, o in enumerate(_j.loads(g["options"]))] + [{"value": "none", "label": "None work"}]
+        inbox = [{"id": x["id"], "from": who(x["from_uid"]), "kind": x["kind"], "text": x["text"], "taps": taps(x)}
                  for x in db.q("SELECT * FROM m2m WHERE to_uid=? AND status='open' ORDER BY id DESC LIMIT 20", (me["id"],))]
+        polls = [{"id": g["id"], "question": g["question"], "text": m2m.tally_text(m2m.tally(db, g["id"])), "closed": bool(g["closed"])}
+                 for g in db.q("SELECT * FROM m2m_group WHERE from_uid=? ORDER BY id DESC LIMIT 5", (me["id"],))]
         sent = [{"id": x["id"], "to": who(x["to_uid"]), "kind": x["kind"], "text": x["text"], "status": x["status"],
                  "answer": dict(m2m.KINDS[x["kind"]]).get(x["answer"]) if x["answer"] else None}
-                for x in db.q("SELECT * FROM m2m WHERE from_uid=? ORDER BY id DESC LIMIT 15", (me["id"],))]
+                for x in db.q("SELECT * FROM m2m WHERE from_uid=? AND kind!='poll' ORDER BY id DESC LIMIT 15", (me["id"],))]
         link = f"https://wa.me/{settings.public_wa_number}?text=" + quote(f"Hi Mindy! join {m2m.invite_code(db, me['id'])}")
-        return {"people": [{"id": i, "name": n} for i, n in names.items()], "inbox": inbox, "sent": sent, "link": link, "handled": m2m.handled(db, me)}
+        return {"people": [{"id": i, "name": n} for i, n in names.items()], "inbox": inbox, "sent": sent, "polls": polls, "link": link, "handled": m2m.handled(db, me)}
 
     @r.post("/api/m2m/send")
     async def m2m_send(b: Body, me=Depends(me_dep)):
@@ -304,12 +312,27 @@ def make_more_router(db: DB, mindy) -> APIRouter:
         await _notify(res)
         return {"reply": res["text"]}
 
+    @r.post("/api/m2m/group")
+    async def m2m_group(b: Body, me=Depends(me_dep)):
+        from . import m2m
+        x = b.model_extra or {}
+        ids = {int(i) for i in (x.get("to") or []) if str(i).isdigit()}
+        people = m2m.linked(db, me["id"])
+        targets = [p for p in people if p["id"] in ids] if ids else people
+        q = str(x.get("question", "")).strip()[:160]
+        opts = [str(o).strip()[:20] for o in (x.get("options") or []) if str(o).strip()][:3]
+        if not targets or len(q) < 3:
+            raise HTTPException(400, "Pick people and write the question.")
+        res = m2m.start_poll(db, me, targets, q[0].upper() + q[1:].rstrip("?") + "?", opts)
+        await _notify(res)
+        return {"reply": res["text"]}
+
     @r.post("/api/m2m/{mid}/answer")
     async def m2m_answer(mid: int, b: Body, me=Depends(me_dep)):
         from . import m2m
         row = db.one("SELECT kind FROM m2m WHERE id=? AND to_uid=?", (mid, me["id"]))
         ans = str((b.model_extra or {}).get("answer", ""))
-        if not row or ans not in dict(m2m.KINDS[row["kind"]]):
+        if not row or (row["kind"] != "poll" and ans not in dict(m2m.KINDS[row["kind"]])):
             raise HTTPException(404)
         res = m2m.on_button(db, me, f"m2m:{mid}:{ans}")
         await _notify(res)
