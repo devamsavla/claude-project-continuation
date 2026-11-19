@@ -105,6 +105,16 @@ paste `flows/add_person.json` → Publish. Put the Flow ID in `WA_FLOW_PERSON_ID
 **Caller ID on Android.** In the helper app: *Turn on scam caller warnings* (Android 10+). No contacts are uploaded;
 only the incoming number is checked against community reports.
 
+## Launch week: watch what Mindy fumbles
+
+Open `https://api.whatsonyourmind.online/admin/fumbles?key=<ADMIN_KEY>` once a day. It lists every message Mindy probably
+didn't understand (it fell back to "Saved to Notes" or "couldn't find") and every error, with the most repeated ones first.
+Send that list to Claude and fix them the same day.
+
+In production (`DEV_CODES=0`) Mindy refuses to run admin, Telegram, email and gateway endpoints with placeholder or short
+secrets, and refuses unsigned WhatsApp/Instagram webhooks: set every secret in `.env` to a long random value
+(`openssl rand -hex 24`).
+
 ## Updating
 
 ```bash

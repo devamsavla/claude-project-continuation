@@ -12,7 +12,7 @@ import re
 from . import brain, care, hooks, llm, more, places, skills
 from . import intent as semantic
 from .config import settings
-from .db import DB
+from .db import DB, now_iso
 from .instagram import ig
 from .telegram import tg
 from .whatsapp import wa
@@ -58,6 +58,36 @@ HELP += ("\n• *Tech friend*: _book an uber to Phoenix Mall_, _pay ₹500 to na
          "\n• *Files*: send a video with _mp3_ or _compress_\n• *Family*: _family 123456_ to link with family")
 
 
+NOISE_END = re.compile(r"(?:\s*(?:pls|plz|please|thx|thanks|thank you|ty|asap|[\U0001F300-\U0001FAFF\u2600-\u27BF\uFE0F]+|!+|\.{2,}))+$", re.I)
+
+
+def tidy(text: str) -> str:
+    """'hey mindy CHECK ON ASHA 🙏 pls' -> 'CHECK ON ASHA': drop the greeting to Mindy and trailing politeness/emojis,
+    so commands match however they're written. Messages that are only a greeting or emoji stay as they are."""
+    t = re.sub(r"^(?:(?:hey|hi|hello|ok|okay|yo|oi|dear)[\s,]+)?mindy\b[\s,!:.\-]*", "", text.strip(), flags=re.I)
+    t = re.sub(r"^(?:pls|plz|please|kindly)\s+", "", t, flags=re.I)
+    t = NOISE_END.sub("", t).strip()
+    t = re.sub(r"\?{2,}", "?", t)
+    t = fix_first_word(t)
+    return t if len(t) >= 2 else text.strip()
+
+
+COMMAND_WORDS = ["remind", "reminder", "check", "ask", "tell", "split", "paid", "lent", "owes", "gift", "wishlist", "staff", "carousel",
+                 "caption", "schemes", "language", "menu", "where", "kept", "safe", "subscriptions", "spending", "documents", "khata"]
+
+
+def fix_first_word(t: str) -> str:
+    """'remidn me at 5' -> 'remind me at 5'. Only the first word, only close typos of Mindy's command words."""
+    import difflib
+    m = re.match(r"^([A-Za-z]{4,12})\b(.*)$", t, re.S)
+    if not m or m.group(1).lower() in COMMAND_WORDS:
+        return t
+    hit = difflib.get_close_matches(m.group(1).lower(), COMMAND_WORDS, n=1, cutoff=0.8)
+    if hit and hit[0] == "reminder" and re.match(r"^\s+me\b", m.group(2)):
+        hit = ["remind"]
+    return (hit[0] + m.group(2)) if hit else t
+
+
 def fmt_local(dt_utc_iso: str, tz: str) -> str:
     d = datetime.fromisoformat(dt_utc_iso).astimezone(ZoneInfo(tz))
     return f"{d:%a} {d.day} {d:%b}, {d:%H:%M}"
@@ -67,6 +97,8 @@ def fmt_local(dt_utc_iso: str, tz: str) -> str:
 _CONV: ContextVar[tuple] = ContextVar("conv", default=(wa, ""))
 _USER: ContextVar[dict | None] = ContextVar("user", default=None)
 _VOICE: ContextVar[bool] = ContextVar("voice", default=False)
+_SAID: ContextVar[list | None] = ContextVar("said", default=None)
+FUMBLE_RX = re.compile(r"^(Saved to \*(Notes|Ideas)\*|I couldn't find anything saved|Sorry, something went wrong|I can't open that)")
 CMD_RX = re.compile(r"^(remind|add |check|scam|show|my |what|where|how|help|khata|link|login|timezone|language|call yourself|split|gift|wishlist|staff|customer|bill )", re.I)
 
 
@@ -95,6 +127,9 @@ class Mindy:
 
     async def say(self, text: str, **kw):
         client, to = _CONV.get()
+        said = _SAID.get()
+        if said is not None:
+            said.append(text)
         return await client.text(to, await self._out(text), **kw)
 
     async def ask(self, text: str, buttons):
@@ -177,13 +212,29 @@ class Mindy:
             elif mtype == "location":
                 await self.on_location(user, msg["location"])
             elif mtype == "text":
+                said = []
+                _SAID.set(said)
                 await self.on_text(user, body, mid, msg.get("share"))
+                self.fumble(user, body, said)
                 await self.maybe_ask(user)
             else:
                 await self.say("I can't open that type of message yet, but text, links, photos and documents all work.")
-        except Exception:
+        except Exception as e:
             log.exception("handler failed")
+            self.fumble(user, (msg.get("text") or {}).get("body") or mtype, [], f"error: {type(e).__name__}: {e}"[:300])
             await self.say("Sorry, something went wrong on my side. Try that again in a moment?")
+
+    def fumble(self, user, text: str, said: list, error: str | None = None):
+        """Launch-week radar: remember messages Mindy probably didn't get (generic save, 'couldn't find', errors)."""
+        try:
+            first = said[0] if said else ""
+            if not error and not (FUMBLE_RX.match(first) and len(text.split()) <= 14 and not brain.URL_RE.search(text)):
+                return
+            self.db.x("CREATE TABLE IF NOT EXISTS fumbles(id INTEGER PRIMARY KEY, user_id INTEGER, text TEXT, reply TEXT, kind TEXT, created_at TEXT)")
+            self.db.x("INSERT INTO fumbles(user_id,text,reply,kind,created_at) VALUES(?,?,?,?,?)",
+                      (user["id"], text[:500], (error or first)[:300], "error" if error else "unsure", now_iso()))
+        except Exception:
+            log.exception("fumble log failed")
 
     async def maybe_ask(self, user):
         """Mindy asks: one tap question at the end of a conversation the person started (free on every channel)."""
@@ -215,6 +266,7 @@ class Mindy:
 
     # ------------------------------------------------------------ text
     async def on_text(self, user: dict, text: str, mid: str, share: str | None = None):
+        text = tidy(text)
         tz = user["tz"]
         low = text.strip().lower()
         if low.startswith("timezone "):
@@ -324,9 +376,9 @@ class Mindy:
         d = skills.do_it(text)
         if d:
             return await self.links(d["reply"], d["links"])
-        if share or re.search(r"(?:https?://|www\.)\S+", text):
+        if share or re.search(r"(?:https?://|www\.)\S+", text) or len(text) >= 30:
             chk = skills.check_message(self.db, text, use_ai=False)
-            if chk["verdict"] == "scam":
+            if chk["verdict"] == "scam" or (chk["verdict"] == "careful" and chk["score"] >= 3):
                 self.db.x("INSERT OR REPLACE INTO kv(k,v) VALUES(?,?)", (f"last_check:{user['id']}", text))
                 return await self.say(chk["reply"])
         if share:  # a reel or post shared from Instagram: always save it, then offer to make it real

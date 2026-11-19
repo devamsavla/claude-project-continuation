@@ -57,6 +57,17 @@ class Settings:
         return not self.whatsapp_live and _env("DEV_CODES", "1") == "1"
 
     @property
+    def production(self) -> bool:
+        """Real users are on it: WhatsApp connected, or DEV_CODES=0 (as in DEPLOY.md)."""
+        return self.whatsapp_live or _env("DEV_CODES", "1") != "1"
+
+    def secret_ok(self, value: str) -> bool:
+        """In production a secret must be set, long, and not one of the placeholder defaults."""
+        if not self.production:
+            return bool(value)
+        return bool(value) and len(value) >= 16 and not value.startswith(("dev-", "change-me"))
+
+    @property
     def whatsapp_live(self) -> bool:
         return bool(self.wa_token and self.wa_phone_number_id)
 

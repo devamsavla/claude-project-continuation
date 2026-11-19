@@ -98,7 +98,7 @@ def send(db: DB, user: dict, to: dict, kind: str, text: str, amount: float | Non
     if db.one("SELECT 1 FROM m2m_mute WHERE user_id=? AND other=?", (to["id"], user["id"])):
         return R(f"{to['name']} has paused requests from you on Mindy. Best to talk to them directly.")
     day = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
-    if db.one("SELECT COUNT(*) n FROM m2m WHERE from_uid=? AND to_uid=? AND created_at>?", (user["id"], to["id"], day))["n"] >= 5:
+    if over_daily_cap(db, user["id"]) or db.one("SELECT COUNT(*) n FROM m2m WHERE from_uid=? AND to_uid=? AND created_at>?", (user["id"], to["id"], day))["n"] >= 5:
         return R(f"That's a lot of nudges for {to['name']} today. I'll hold this one; try again tomorrow.")
     mid = db.x("INSERT INTO m2m(from_uid,to_uid,kind,text,amount,created_at) VALUES(?,?,?,?,?,?)", (user["id"], to["id"], kind, text, amount, now_iso()))
     body = {"money": f"💸 *{me}'s Mindy here.* A gentle nudge: {text}. No rush, just tap one:",
@@ -297,8 +297,16 @@ def group_ask(db: DB, user: dict, text: str) -> dict | None:
     return start_poll(db, user, targets, q, opts, missing)
 
 
+def over_daily_cap(db: DB, uid: int, cap: int = 60) -> bool:
+    """No one can flood their people: at most `cap` Mindy-to-Mindy messages a day in total."""
+    day = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+    return db.one("SELECT COUNT(*) n FROM m2m WHERE from_uid=? AND created_at>?", (uid, day))["n"] >= cap
+
+
 def start_poll(db: DB, user: dict, targets: list[dict], q: str, opts: list[str], missing: list[str] | None = None) -> dict:
     import json
+    if over_daily_cap(db, user["id"]):
+        return R("That's a lot of messages to your people today. I'll hold this one; try again tomorrow.")
     opts = opts or ["Yes", "No"]
     gid = db.x("INSERT INTO m2m_group(from_uid,question,options,created_at) VALUES(?,?,?,?)", (user["id"], q, json.dumps(opts), now_iso()))
     me = user.get("name") or "Your friend"
@@ -367,11 +375,19 @@ def remind_other(db: DB, user: dict, text: str) -> dict | None:
     if not m or m.group(1).strip().lower() in ("me", "us", "myself", "everyone", "mindy"):
         return None
     to = find(db, user["id"], m.group(1))
-    if not to:
-        return None  # not linked: let the normal reminder handle it ("remind Rahul to…" as a note to self)
-    from .brain import parse_when
+    from .brain import parse_when, strip_when
     task = m.group(2).strip().rstrip(".")
     when = parse_when(task, user.get("tz") or "UTC")
+    if not to:  # not linked: remind the user to remind them, and offer to link
+        if when is None:
+            return None
+        from .handlers import fmt_local
+        name = m.group(1).strip().title()
+        due = when.astimezone(timezone.utc).replace(microsecond=0).isoformat()
+        what = strip_when("remind me " + task)
+        db.add_reminder(user["id"], f"Remind {name} to {what}", due)
+        return R(f"⏰ I'll remind *you* to remind {name} to {what}, {fmt_local(due, user.get('tz') or 'UTC')}.\n"
+                 f"Link with {name} (say _my link_) and next time I'll remind them directly on their own Mindy.")
     if when is None:
         res = send(db, user, to, "remind", task)
         return res
@@ -409,6 +425,8 @@ def tell(db: DB, user: dict, text: str) -> dict | None:
         people = linked(db, user["id"])
         if not people:
             return R("🤝 You haven't linked anyone yet. Say _my link_ and send it to your people.")
+        if over_daily_cap(db, user["id"]):
+            return R("That's a lot of messages to your people today. I'll hold this one; try again tomorrow.")
         notify, me = [], user.get("name") or "Your friend"
         for p in people:
             if db.one("SELECT 1 FROM m2m_mute WHERE user_id=? AND other=?", (p["id"], user["id"])):
@@ -418,5 +436,7 @@ def tell(db: DB, user: dict, text: str) -> dict | None:
         return R(f"💬 Told {len(notify)} people: “{msg}”", notify=notify)
     to = find(db, user["id"], who)
     if not to:
-        return None
+        if len(who.split()) > 2 or who.lower() in ("him", "her", "them", "it"):
+            return None
+        return forward_invite(db, user, who.title(), "ask", f"{user.get('name') or 'Your friend'} says: “{msg}”")
     return send(db, user, to, "note", msg)

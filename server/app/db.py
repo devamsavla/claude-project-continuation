@@ -190,12 +190,40 @@ class DB:
         except sqlite3.IntegrityError:
             return False
 
+    def _user_tables(self):
+        """Every table with a user_id column, so export and delete never miss newer features."""
+        out = []
+        for (t,) in self.conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").fetchall():
+            if any(c[1] == "user_id" for c in self.conn.execute(f"PRAGMA table_info({t})").fetchall()):
+                out.append(t)
+        return out
+
+    SKIP_EXPORT = {"sessions", "magic", "push_subs", "link_codes", "accounts"}
+
     def export_user(self, user_id):
-        return {t: self.q(f"SELECT * FROM {t} WHERE user_id=?", (user_id,)) for t in ("items", "reminders", "occasions")}
+        return {t: self.q(f"SELECT * FROM {t} WHERE user_id=?", (user_id,)) for t in self._user_tables() if t not in self.SKIP_EXPORT}
 
     def delete_user(self, user_id):
-        for t in ("items", "reminders", "occasions", "messages", "accounts", "link_codes"):
-            self.x(f"DELETE FROM {t} WHERE user_id=?", (user_id,))
+        # media the person stored (wardrobe photos, try-on photo) goes too
+        try:
+            from .skills import delete_media
+            for r in self.q("SELECT url FROM items WHERE user_id=? AND url LIKE '%/media/%'", (user_id,)):
+                delete_media(r["url"])
+            u = self.one("SELECT photo FROM users WHERE id=?", (user_id,))
+            if u and u.get("photo"):
+                delete_media(u["photo"])
+        except Exception:
+            pass
+        for t in self._user_tables():
+            if t not in ("lists", "users"):
+                self.x(f"DELETE FROM {t} WHERE user_id=?", (user_id,))
+        for t, cols in (("m2m", ("from_uid", "to_uid")), ("m2m_group", ("from_uid",)), ("m2m_mute", ("other",)), ("verify_req", ("asker", "target")),
+                        ("friends", ("a", "b")), ("scam_reports", ("reporter",)), ("impersonation", ("reporter",))):
+            try:
+                for c in cols:
+                    self.x(f"DELETE FROM {t} WHERE {c}=?", (user_id,))
+            except sqlite3.OperationalError:
+                pass
         for l in self.q("SELECT id FROM lists WHERE user_id=?", (user_id,)):
             self.x("DELETE FROM list_items WHERE list_id=?", (l["id"],))
         self.x("DELETE FROM lists WHERE user_id=?", (user_id,))

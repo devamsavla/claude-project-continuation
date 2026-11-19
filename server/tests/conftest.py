@@ -16,3 +16,12 @@ def _reset_rate_limits():
     from app import auth
     auth._tries.clear()
     yield
+
+
+@pytest.fixture(autouse=True)
+def _meta_limits():
+    """Every WhatsApp message any test sends must obey Meta's documented limits."""
+    from app.whatsapp import wa
+    wa.problems.clear()
+    yield
+    assert not wa.problems, f"WhatsApp payloads that Meta would reject: {wa.problems[:3]}"

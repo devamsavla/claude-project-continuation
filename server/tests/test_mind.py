@@ -199,7 +199,9 @@ def test_trip_wardrobe_clipboard_language_magic():
     assert r.status_code == 200 and "mindy_token" in r.text and "#brain" in r.text
     assert client.get(link.split(settings.app_url.rstrip("/"))[1]).status_code == 410  # single use
     assert client.get(f"/cal/{key}.ics").text.startswith("BEGIN:VCALENDAR")
-    png = client.get(f"/card/{key}.png")
+    from app.routes_more import share_key
+    assert client.get(f"/card/{key}.png").status_code == 404  # the private key never works for the public card
+    png = client.get(f"/card/{share_key(db, u['id'])}.png")
     assert png.status_code == 200 and png.content[:4] == b"\x89PNG"
 
 
@@ -472,3 +474,38 @@ def test_carousel_maker(monkeypatch):
     out = send(ext, "make a carousel about 5 ways to save money")
     imgs = [m for m in wa.outbox if m.get("type") == "image"]
     assert len(imgs) == 6 and "6 slides" in out and "#moneytips" in out
+
+
+def test_security(monkeypatch):
+    """Production refuses unsigned webhooks and placeholder secrets; delete really deletes; export covers new data."""
+    from app import whatsapp
+    from app.config import settings as S
+    monkeypatch.setenv("DEV_CODES", "0")
+    assert S.production
+    assert not whatsapp.verify_signature(b"{}", None)  # no WA_APP_SECRET in production: refuse
+    h = {"X-Gateway-Secret": S.gateway_secret}
+    assert client.post("/api/gateway/missed", headers=h, json={"from": "919820099499"}).status_code == 401
+    assert client.get(f"/admin/queue?key={S.admin_key}").status_code == 403
+    assert client.post("/webhook/telegram", headers={"X-Telegram-Bot-Api-Secret-Token": S.tg_secret}, json={}).status_code == 401
+    monkeypatch.setenv("DEV_CODES", "1")
+    # delete wipes newer features too
+    ext = "447700900390"
+    send(ext, "hi", name="Gone")
+    send(ext, "passport expires 12 March 2029")
+    send(ext, "staff Sunita 12000")
+    send(ext, "grateful for tea")
+    u = user_of(ext)
+    h = signin("+" + ext)
+    exp = client.get("/api/export", headers=h).json()
+    assert exp.get("docs") and exp.get("staff")
+    assert client.post("/api/delete-account", headers=h, json={"confirm": "DELETE"}).status_code == 200
+    for t in ("docs", "staff", "items", "facts"):
+        assert db.one(f"SELECT COUNT(*) n FROM {t} WHERE user_id=?", (u["id"],))["n"] == 0
+
+
+def test_fumbles_page():
+    ext = "447700900395"
+    send(ext, "hi", name="Fi")
+    send(ext, "blorp the frobnicator")
+    page = client.get(f"/admin/fumbles?key={settings.admin_key}").text
+    assert "blorp the frobnicator" in page and "fumbled" in page

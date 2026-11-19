@@ -70,7 +70,55 @@ def classify_save(text: str, who: str | None = None) -> dict:
 
 
 # ---------------------------------------------------------------- time parsing
+SLANG = [(r"\b(2moro|2mrw|tmrw|tmr|tomo|tomoz|tommorow|tomorow|tmrow)\b", "tomorrow"), (r"\b(tonite|2nite)\b", "tonight"),
+         (r"\b(pls|plz|please|kindly)\b\s*", ""), (r"\b(mins?)\b", "min"), (r"\b(hrs?)\b", "hours"),
+         (r"\bday after tomorrow\b|\bparso\b|\bparson\b", "in 2 days")]
+HINGLISH = [(r"\bkal\b", "tomorrow"), (r"\baaj\b", "today"), (r"\bsubah\b", "morning"), (r"\bsavere\b", "morning"),
+            (r"\bdopahar\b", "afternoon"), (r"\bshaam\b", "evening"), (r"\braat\b", "tonight")]
+REMIND_START = re.compile(r"^(?:please\s+)?(?:don'?t let me forget(?: to)?|do not let me forget(?: to)?|set (?:a |an )?(?:reminder|alarm)(?: for| to)?|"
+                          r"make sure i(?: remember to)?|i need to remember to|wake me up|alarm(?: for)?)\b", re.I)
+
+
+def normalize(text: str) -> str:
+    """Rewrites everyday ways of asking for a reminder ("2moro", "don't let me forget", "kal subah 9 baje yaad dilana")
+    into the plain form the reminder rules understand. Other messages come back unchanged."""
+    t = text.strip()
+    m = re.match(r"^(.{3,40}?)[,\s]+(?:please\s+)?remind me\s+(?:to\s+)?(.+)$", t, re.I)
+    if m and not re.search(r"\bremind\b", m.group(1), re.I) and re.search(
+            r"\d|\b(tomorrow|tonight|today|morning|evening|afternoon|noon|mon|tue|wed|thu|fri|sat|sun)\w*\b|\bnext\b|\bthis\b", m.group(1), re.I):
+        t = f"remind me to {m.group(2)} {m.group(1)}"
+    low = t.lower()
+    hindi = bool(re.search(r"\b(yaad (dilaana|dilana|dilao|dila dena|dila do|dila|karana|kara dena)|bata dena)\b", low))
+    wake = bool(re.match(r"^(?:please\s+)?wake me up\b", low))
+    if not (hindi or REMIND_START.match(low) or re.match(r"^(?:pls|plz|please)?\s*(remind|reminder)\b", low)):
+        return t
+    for rx, to in SLANG:
+        t = re.sub(rx, to, t, flags=re.I)
+    if hindi:
+        for rx, to in HINGLISH:
+            t = re.sub(rx, to, t, flags=re.I)
+        ampm = "pm" if re.search(r"\b(evening|tonight|afternoon)\b", t, re.I) else "am"
+        t = re.sub(r"\b(\d{1,2})(?:[:.](\d{2}))?\s*baje\b", lambda m: f"at {m.group(1)}{':' + m.group(2) if m.group(2) else ''}{ampm}", t, flags=re.I)
+        t = re.sub(r"\s*(ko\s+)?(yaad (dilaana|dilana|dilao|dila dena|dila do|dila|karana|kara dena)|bata dena)\s*", " ", t, flags=re.I)
+        t = re.sub(r"\b(morning|evening|afternoon)\s+(at \d)", r"\2", t, flags=re.I)
+        return "remind me " + re.sub(r"\s{2,}", " ", t).strip()
+    if wake:
+        t = re.sub(r"^(?:please\s+)?wake me up\s*", "", t, flags=re.I)
+        if re.search(r"\bat \d{1,2}\b(?!\s*(?:am|pm|[:.]))", t, re.I):
+            t = re.sub(r"\bat (\d{1,2})\b(?!\s*(?:am|pm|[:.]))", r"at \1am", t, flags=re.I)
+        return f"remind me {t} wake up".replace("  ", " ")
+    t = REMIND_START.sub("remind me", t, count=1) if REMIND_START.match(t) else t
+    return re.sub(r"\s{2,}", " ", t).strip()
+
+
 def parse_when(text: str, tz: str, now: datetime | None = None) -> datetime | None:
+    try:
+        return _parse_when(text, tz, now)
+    except (ValueError, OverflowError):
+        return None  # "25:99", "31 feb": not a real time
+
+
+def _parse_when(text: str, tz: str, now: datetime | None = None) -> datetime | None:
     """Turns 'tomorrow at 9', 'in 2 hours', 'fri 6pm', 'on 14 nov at 17:30' into an aware datetime."""
     z = ZoneInfo(tz)
     now = (now or datetime.now(z)).astimezone(z)
@@ -85,6 +133,7 @@ def parse_when(text: str, tz: str, now: datetime | None = None) -> datetime | No
     # time of day
     hh, mm = None, 0
     tm = re.search(r"\b(?:at )?(\d{1,2})(?:[:.](\d{2}))? ?(am|pm)\b", t) or re.search(r"\bat (\d{1,2})(?:[:.](\d{2}))?\b", t) or re.search(r"\b(\d{1,2})[:.](\d{2})\b", t)
+    guess = False
     if tm:
         hh, mm = int(tm.group(1)), int(tm.group(2) or 0)
         ap = tm.group(3) if tm.lastindex and tm.lastindex >= 3 else None
@@ -92,6 +141,9 @@ def parse_when(text: str, tz: str, now: datetime | None = None) -> datetime | No
             hh += 12
         if ap == "am" and hh == 12:
             hh = 0
+        guess = ap is None and 1 <= hh <= 11 and not re.search(r"\b(morning|am|a\.m\.)\b", t)
+        if guess and re.search(r"\b(evening|tonight|afternoon|pm|p\.m\.)\b", t):
+            hh, guess = hh + 12, False
     for word, h in (("morning", 9), ("noon", 12), ("lunchtime", 12), ("afternoon", 15), ("evening", 18), ("tonight", 20)):
         if hh is None and word in t:
             hh = h
@@ -117,6 +169,12 @@ def parse_when(text: str, tz: str, now: datetime | None = None) -> datetime | No
             day = (now + timedelta(days=ahead)).date()
     if day is None and hh is None:
         return None
+    if guess:  # "at 4" with no am/pm: people mean the afternoon for 1-6, and the next one coming up for 7-11
+        if hh <= 6:
+            hh += 12
+        elif day is None:
+            am = datetime(now.year, now.month, now.day, hh, mm, tzinfo=z)
+            hh = hh if am > now else (hh + 12 if am + timedelta(hours=12) > now else hh)
     if day is None:
         day = now.date()
         cand = datetime(day.year, day.month, day.day, hh, mm, tzinfo=z)
@@ -125,7 +183,7 @@ def parse_when(text: str, tz: str, now: datetime | None = None) -> datetime | No
 
 
 def strip_when(text: str) -> str:
-    t = re.sub(r"^(please )?(remind me|reminder|remember)( to| that| about)?\s*", "", text.strip(), flags=re.I)
+    t = re.sub(r"^(please )?(remind me|reminder|remember)(?: (?:to|that|about)\b)?:?\s*", "", text.strip(), flags=re.I)
     t = re.sub(rf"\b(tomorrow|today|tonight|this (morning|afternoon|evening)|in \d+ ?\w+|in an? \w+|at \d{{1,2}}([:.]\d{{2}})? ?(am|pm)?|\d{{1,2}}([:.]\d{{2}})? ?(am|pm)|on (mon|tue|wed|thu|fri|sat|sun)\w*|(next|this) (mon|tue|wed|thu|fri|sat|sun)\w*|(on )?\d{{1,2}}(st|nd|rd|th)? ({MONTHS})|every (day|week|month|year))\b", "", t, flags=re.I)
     t = re.sub(r"\s{2,}", " ", t).strip(" ,.-")
     t = re.sub(r"^(to|that|about)\s+", "", t, flags=re.I)
@@ -173,6 +231,7 @@ CONFIDENT = {"help", "upcoming", "export", "delete_all", "list_add", "list_show"
 
 
 def route(text: str, tz: str, now: datetime | None = None, who: str | None = None) -> dict:
+    text = normalize(text)
     z = ZoneInfo(tz)
     now = (now or datetime.now(z)).astimezone(z)
     r = route_rules(text)
