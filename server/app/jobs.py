@@ -125,16 +125,75 @@ async def on_this_day(db: DB, now: datetime | None = None):
         await _deliver(db, it["user_id"], f"🕰️ *On this day last year* you saved:\n{it['text'][:300]}", [], None, [], now, title="🕰️ On this day")
 
 
+async def goal_checkins(db: DB, now: datetime | None = None):
+    """Sunday 18:00 local: one-tap check-in for anyone with an active goal. Runs every 15 minutes."""
+    now = now or datetime.now(timezone.utc)
+    for u in db.q("SELECT DISTINCT u.* FROM users u JOIN goals g ON g.user_id=u.id WHERE g.done_at IS NULL"):
+        local = now.astimezone(ZoneInfo(u["tz"] or "UTC"))
+        if local.weekday() != 6 or local.hour != 18 or local.minute >= 15:
+            continue
+        k = f"goalask:{u['id']}:{local.date()}"
+        if db.one("SELECT 1 FROM kv WHERE k=?", (k,)):
+            continue
+        db.x("INSERT OR REPLACE INTO kv(k,v) VALUES(?,?)", (k, "1"))
+        db.x("INSERT OR REPLACE INTO kv(k,v) VALUES(?,?)", (f"await_goal:{u['id']}", "1"))
+        g = db.one("SELECT title FROM goals WHERE user_id=? AND done_at IS NULL ORDER BY id DESC LIMIT 1", (u["id"],))
+        await _deliver(db, u["id"], f"🎯 Sunday check-in: how did *{g['title']}* go this week?", [("goal:1", "😞 Badly"), ("goal:3", "🙂 Okay"), ("goal:5", "🔥 Great")],
+                       settings.reminder_template, [f"How did {g['title']} go this week?"], now, title="🎯 Weekly check-in")
+
+
+async def gift_nudges(db: DB, now: datetime | None = None):
+    """3 days before a birthday: gift ideas, their wishlist if they share one, and a group-gift nudge. Free channels only.
+    People with a morning brief get this inside the brief instead."""
+    now = now or datetime.now(timezone.utc)
+    soon = (now + timedelta(days=3)).date()
+    for o in db.q("SELECT o.*, u.brief_at FROM occasions o JOIN users u ON u.id=o.user_id WHERE o.month=? AND o.day=? AND o.kind='birthday'", (soon.month, soon.day)):
+        if o.get("brief_at"):
+            continue
+        fr = db.one("SELECT u.id FROM friends f JOIN users u ON u.id=f.b WHERE f.a=? AND lower(u.name) LIKE ? AND u.share_matches=1", (o["user_id"], o["person"].lower().split(" ")[0] + "%"))
+        wish = []
+        if fr:
+            _, items = db.list_show(fr["id"], "Wishlist")
+            wish = [i["text"] for i in items[:4]]
+        p = db.one("SELECT gift_ideas FROM people WHERE user_id=? AND lower(name)=?", (o["user_id"], o["person"].lower()))
+        lines = [f"🎁 *{o['person']}'s birthday is in 3 days* ({soon:%a %d %b})."]
+        if wish:
+            lines.append("Their wishlist: " + ", ".join(wish))
+        elif p and p.get("gift_ideas"):
+            lines.append("They love: " + p["gift_ideas"])
+        lines.append(f"Say _gift ideas for {o['person']}_, or chip in together: _group gift for {o['person']} 3000 with …_")
+        await _deliver(db, o["user_id"], "\n".join(lines), [], None, [], now, title="🎁 Birthday in 3 days")
+
+
+async def gratitude_cards(db: DB, now: datetime | None = None):
+    """1st of the month: last month's good things, on one card. Free channels only."""
+    now = now or datetime.now(timezone.utc)
+    first = now.replace(day=1)
+    last_month = (first - timedelta(days=1)).strftime("%Y-%m")
+    for u in db.q("SELECT DISTINCT user_id FROM items WHERE collection='Gratitude' AND substr(created_at,1,7)=?", (last_month,)):
+        k = f"gratcard:{u['user_id']}:{last_month}"
+        if db.one("SELECT 1 FROM kv WHERE k=?", (k,)):
+            continue
+        db.x("INSERT OR REPLACE INTO kv(k,v) VALUES(?,?)", (k, "1"))
+        items = db.q("SELECT text FROM items WHERE user_id=? AND collection='Gratitude' AND substr(created_at,1,7)=? ORDER BY id", (u["user_id"], last_month))
+        body = f"🫙 *Your jar for {datetime.strptime(last_month, '%Y-%m'):%B}*: {len(items)} good thing{'s' if len(items) != 1 else ''}\n" + "\n".join("• " + i["text"][:120] for i in items[:31])
+        await _deliver(db, u["user_id"], body, [], None, [], now, title="🫙 Your month, in good things", url="/#brain")
+
+
 async def weekly_handled(db: DB, now: datetime | None = None):
     """Sunday: the receipt of what Mindy handled this week. Free channels only."""
     from . import m2m
     for u in db.q("SELECT * FROM users"):
         h = m2m.handled(db, u)
-        if h["total"] >= 3:
+        saved = db.one("SELECT COUNT(*) n FROM items WHERE user_id=? AND created_at>=?", (u["id"], ((now or datetime.now(timezone.utc)) - timedelta(days=7)).isoformat()))["n"]
+        if h["total"] >= 3 and not saved:  # people who saved this week get it inside the weekly summary instead
             await _deliver(db, u["id"], m2m.handled_text(db, u), [], None, [], now, title="🧾 Handled for you", url="/#now")
 
 
 def add_jobs(scheduler, db: DB):
+    scheduler.add_job(goal_checkins, "interval", minutes=15, args=[db], id="goals", max_instances=1, coalesce=True)
+    scheduler.add_job(gift_nudges, "cron", hour=9, minute=40, args=[db], id="giftnudge")
+    scheduler.add_job(gratitude_cards, "cron", day=1, hour=10, minute=35, args=[db], id="gratitude")
     scheduler.add_job(weekly_handled, "cron", day_of_week="sun", hour=12, minute=5, args=[db], id="handled")
     scheduler.add_job(safety_check, "interval", seconds=60, args=[db], id="safety", max_instances=1, coalesce=True)
     scheduler.add_job(ok_daily, "interval", minutes=15, args=[db], id="okdaily", max_instances=1, coalesce=True)

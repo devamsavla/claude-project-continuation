@@ -698,6 +698,52 @@ def trips(user, text, db) -> dict | None:
 
 
 # ---------------------------------------------------------------- the dispatcher
+def goal_checkin(db, user, score: int) -> dict:
+    """A Sunday goal check-in answer (1, 3 or 5 from buttons; any 1-5 typed)."""
+    g = db.one("SELECT title FROM goals WHERE user_id=? AND done_at IS NULL ORDER BY id DESC LIMIT 1", (user["id"],))
+    _kv_set(db, f"await_goal:{user['id']}", None)
+    week = _today(user).isocalendar()
+    mind.set_fact(db, user["id"], f"goal_week_{week[0]}_{week[1]}", str(score), "goals", "checkin")
+    prev = db.q("SELECT value FROM facts WHERE user_id=? AND key LIKE 'goal_week_%' ORDER BY key DESC LIMIT 4", (user["id"],))
+    trend = [int(x["value"]) for x in prev if x["value"].isdigit()]
+    msg = {1: "That's okay. Hard weeks happen. What's one tiny step for Monday?", 2: "Not your week, and that's fine. One small thing tomorrow?",
+           3: "Steady. That's how it's done. 💪", 4: "Good week! Keep that going. 🔥", 5: "A brilliant week. I'm proud of you. 🎉"}[max(1, min(5, score))]
+    up = " Better than last week too." if len(trend) > 1 and trend[0] > trend[1] else ""
+    return R(f"🎯 *{(g or {}).get('title') or 'Your goal'}*: {score}/5. {msg}{up}")
+
+
+def little_more(user, text, db):
+    """Pet care, tax deadlines and goal check-ins typed as a number."""
+    low = text.lower().strip()
+    if re.fullmatch(r"[1-5]", low) and _kv_get(db, f"await_goal:{user['id']}"):
+        return goal_checkin(db, user, int(low))
+    m = re.match(r"^([a-z][a-z]{1,15})(?:'s)?\s+(vaccine|vaccination|jab|booster|vet|vet visit|deworming|grooming|check ?up|flea treatment)\b\s*(?:on|is|due)?\s*(.+)$", low)
+    if m and m.group(1) not in ("my", "the", "a", "next"):
+        d = mind.parse_date(m.group(3))
+        if d:
+            z = ZoneInfo(user.get("tz") or "UTC")
+            name, what = m.group(1).title(), m.group(2)
+            for at, txt in ((datetime(d.year, d.month, d.day, 18, tzinfo=z) - timedelta(days=1), f"🐾 {name}'s {what} is tomorrow."),
+                            (datetime(d.year, d.month, d.day, 9, tzinfo=z), f"🐾 {name}'s {what} today!")):
+                if at > datetime.now(z):
+                    db.add_reminder(user["id"], txt, at.astimezone(timezone.utc).isoformat())
+            mind.set_fact(db, user["id"], "pet", mind.facts(db, user["id"]).get("pet") or name, "family", "told")
+            return R(f"🐾 Got it: *{name}'s {what}* on {d:%a %d %b}. I'll remind you the evening before and that morning.")
+    m = re.match(r"^(?:my )?(?:tax|itr|self assessment|tax return)(?: filing)? (?:deadline|due)(?: is)?\s+(.+)$", low)
+    if m:
+        d = mind.parse_date(m.group(1))
+        if d:
+            z = ZoneInfo(user.get("tz") or "UTC")
+            set_ = []
+            for days in (30, 7, 1):
+                at = datetime(d.year, d.month, d.day, 10, tzinfo=z) - timedelta(days=days)
+                if at > datetime.now(z):
+                    db.add_reminder(user["id"], f"🧾 Tax return due {d:%d %b}. {days} day{'s' if days > 1 else ''} left. Say *itr* for the checklist.", at.astimezone(timezone.utc).isoformat())
+                    set_.append(days)
+            return R(f"🧾 Deadline saved: {d:%d %b %Y}. Reminders {', '.join(str(x) + (' days' if x > 1 else ' day') for x in set_) or 'none (it is very close!)'} before.")
+    return None
+
+
 def mindy_to_mindy(user, text, db):
     if re.match(r"^(what did you (handle|do)|handled|my week|what have you (handled|done))( for me)?( this week)?\??$", text.lower().strip()):
         return R(m2m.handled_text(db, user), app=("See it in the app", "now"))
@@ -705,7 +751,7 @@ def mindy_to_mindy(user, text, db):
 
 
 ORDER = [personalise, safety, habits, codeword, numbers, impersonation, human, screen_share, gifts, staff, business, vault,
-         subscription, wardrobe, little, mindy_to_mindy, loan_alert, trips]
+         subscription, wardrobe, little, little_more, mindy_to_mindy, loan_alert, trips]
 
 
 def handle(db: DB, user: dict, text: str, key: str | None = None) -> dict | None:
@@ -722,7 +768,7 @@ def handle(db: DB, user: dict, text: str, key: str | None = None) -> dict | None
         return R("☰ *Your Mindy*\nTap anything. No typing needed.", list=money.MENU)
     if re.match(r"^(my )?(spend|spending|expenses|where did my money go|money summary)\b", low):
         return R(money.summary_text(db, user), app=("See the breakdown", "money"))
-    if re.match(r"^(itr|income tax|tax|taxes|tax return|file (my )?(itr|taxes|tax return)|self assessment|my (income|salary|ctc) is)\b", low):
+    if re.match(r"^(itr|income tax|tax|taxes|tax return|file (my )?(itr|taxes|tax return)|self assessment|my (income|salary|ctc) is)\b", low) and not re.search(r"\b(deadline|due)\b", low):
         return R(money.tax_help(db, user, text))
     r = _safe(money.checklist, db, user, text)
     if r:
@@ -780,6 +826,8 @@ def on_button(db: DB, user: dict, bid: str) -> dict | None:
             return R(f"🌳 *{d['name'].title()}* is in your family tree ({n} people)." + (" I'll remind you before their birthday with gift ideas." if bd else ""),
                      app=("See your tree", "tree"))
         return None
+    if bid.startswith("goal:"):
+        return goal_checkin(db, user, int(bid[5:]))
     if bid.startswith("menu:"):
         return _menu(db, user, bid[5:])
     if bid.startswith("cl:"):

@@ -63,8 +63,47 @@ Message your bot: it answers. Send "link" in the app (Me → Telegram) to join a
 ## 5. Switch on WhatsApp and Instagram
 
 Follow `README.md` ("Connect real WhatsApp", "Connect Instagram") and submit the templates in `TEMPLATES.md`
-(`mindy_reminder`, `mindy_care`, `mindy_care_alert`, `mindy_login_code`). Add the keys to `.env` and run
+(`mindy_reminder`, `mindy_care`, `mindy_care_alert`, `mindy_sos`, `mindy_login_code`). Add the keys to `.env` and run
 `bash deploy/setup-server.sh` again.
+
+## Before you connect WhatsApp: the number
+
+Meta's WhatsApp Business Platform needs a number that is **not** active in the normal WhatsApp or WhatsApp Business
+app. If +44 7391 325727 is your personal WhatsApp, either move it to the platform (your chats on that number stop working
+in the phone app) or get a second SIM for Mindy and put its number in `PUBLIC_WA_NUMBER` and `src/site/config.ts`.
+Until WhatsApp is approved, launch on **Telegram + the app** (steps 3 and 4): both need no approval.
+
+## 6. Optional extras
+
+Each of these is off until you add its key. Run `bash deploy/setup-server.sh` after editing `.env`.
+
+**Voice replies.** Google Cloud console → enable *Cloud Text-to-Speech API* → Credentials → API key → `TTS_API_KEY`.
+Free tier covers millions of characters a month. Without it Mindy uses the offline `espeak-ng` voice (robotic but free).
+
+**Virtual try-on.** Uses Gemini's image model. If `LLM_BASE_URL` is already Gemini, nothing to add; otherwise set
+`GEMINI_API_KEY`. Each image costs about $0.04, so `TRYON_DAILY` caps it per person.
+
+**Forward emails to Mindy.** Needs the domain's DNS on Cloudflare (free plan).
+1. Cloudflare → whatsonyourmind.online → Email → Email Routing → enable for the subdomain in `EMAIL_DOMAIN`.
+2. Workers → Create → paste `deploy/email-worker.js` (add the `postal-mime` package), set `MINDY_URL` and `MINDY_SECRET`.
+3. Email Routing → Routing rules → Catch-all → Send to a Worker → the worker.
+People get their address by saying "connect email" to Mindy.
+
+**Calendar.** Nothing to set up: "connect calendar" gives each person a private feed URL to add to Google/Apple Calendar.
+
+**Missed-call and SMS line (basic phones).** A spare Android phone with a cheap prepaid SIM:
+1. Install the Mindy helper APK (GitHub → Actions → *android helper apk* → artifact) on that phone.
+2. Open it → Advanced → put the server URL and `GATEWAY_SECRET` → *Gateway mode on*. Allow SMS and phone permissions.
+3. Keep it charged and on Wi-Fi. Give its number out as "give a missed call to Mindy". Normal SMS rates apply on that SIM.
+
+**WhatsApp Flow (a family-tree form inside WhatsApp).** WhatsApp Manager → Account tools → Flows → Create flow →
+paste `flows/add_person.json` → Publish. Put the Flow ID in `WA_FLOW_PERSON_ID`. Without it, Mindy links to the app instead.
+
+**iPhone clipboard.** Nothing on the server. Each person follows the steps on the app's Clipboard screen
+(Shortcuts → Get Clipboard → Get Contents of URL → their private link → Back Tap).
+
+**Caller ID on Android.** In the helper app: *Turn on scam caller warnings* (Android 10+). No contacts are uploaded;
+only the incoming number is checked against community reports.
 
 ## Updating
 

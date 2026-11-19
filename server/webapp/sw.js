@@ -1,5 +1,5 @@
 // Mindy service worker: keeps the app shell available offline and shows phone notifications.
-const SHELL = "mindy-shell-v4";
+const SHELL = "mindy-shell-v5";
 const FILES = ["/", "/index.html", "/app.css", "/app.js", "/power.js", "/brain.js", "/mindy.js", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png"];
 
 self.addEventListener("install", e => {
