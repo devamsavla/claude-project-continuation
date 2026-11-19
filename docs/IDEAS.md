@@ -74,3 +74,11 @@ Each idea uses data Mindy already has or gets by asking one tap question, and co
 
 ## Festivals, everywhere
 Diwali, Eid, Christmas, Lunar New Year, Thanksgiving: who to wish, gift budget, drafted messages in each person's language. **Next**
+
+## Added after launch planning
+51. **Group asks** — one question to everyone's Mindy, a live tally, the winner announced. **Built**
+52. **Remind them for me** — "remind Rahul to bring the charger at 6pm" lands on Rahul's Mindy; you hear when he taps Done. **Built**
+53. **Tell everyone** — "running 10 min late" to all your people in one line. **Built**
+54. **Understands messy messages** — any wording, any language, typos in names. **Built**
+55. **Instagram carousel maker** — one sentence in, designed slides plus caption and hashtags out. **Built**
+56. **TL;DR for long forwards** — three lines, the dates in it, and the full text saved. **Built**

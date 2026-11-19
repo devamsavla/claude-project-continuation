@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo, available_timezones
 import re
 
 from . import brain, care, hooks, llm, more, places, skills
+from . import intent as semantic
 from .config import settings
 from .db import DB
 from .instagram import ig
@@ -115,6 +116,9 @@ class Mindy:
                 await deliver(self.db, uid, body, btns, settings.reminder_template, [body.replace("*", "")[:900]], title="Mindy")
             except Exception:
                 log.exception("notify failed")
+        for url in (r.get("images") or [])[:10]:
+            client, to = _CONV.get()
+            await client.image(to, url, "")
         text, links = r["text"], list(r.get("links") or [])
         if r.get("app") and user:
             links.append((r["app"][0], more.magic_link(self.db, user["id"], r["app"][1])))
@@ -251,6 +255,13 @@ class Mindy:
         mr = await asyncio.to_thread(more.handle, self.db, user, text, self.button_key(user))
         if mr:
             return await self.more_reply(mr)
+        # ---- a natural sentence (not a command): understand it by meaning before the narrower rules below
+        if not share and len(text.split()) >= 7 and not brain.URL_RE.search(text) and llm.live():
+            cmd = await asyncio.to_thread(semantic.understand, text, str(user["id"]))
+            if cmd:
+                mr = await asyncio.to_thread(more.handle, self.db, user, cmd, self.button_key(user))
+                if mr:
+                    return await self.more_reply(mr)
         # ---- places: parking, home, "where's my car"
         pa = places.ask(text)
         if pa:
@@ -322,6 +333,17 @@ class Mindy:
             um = brain.URL_RE.search(text)
             item = await asyncio.to_thread(hooks.smart_save, self.db, user["id"], text, um.group(0) if um else None, share)
             return await self.ask(hooks.save_reply(item), [(f"do:{item['id']}:{a}", l) for a, l in hooks.actions_for(item)[:3]])
+        # ---- nothing matched by rules: long forwards get a TL;DR, and free-form asks are understood by meaning
+        if not share:
+            t = await asyncio.to_thread(more.tldr, self.db, user, text)
+            if t:
+                return await self.more_reply(t)
+            if len(text.split()) < 7:  # longer ones were already tried above
+                cmd = await asyncio.to_thread(semantic.understand, text, str(user["id"]))
+                if cmd:
+                    mr = await asyncio.to_thread(more.handle, self.db, user, cmd, self.button_key(user))
+                    if mr:
+                        return await self.more_reply(mr)
         r = await asyncio.to_thread(brain.route, text, tz, None, str(user["id"]))
         intent = r.get("intent")
         if intent == "help":
