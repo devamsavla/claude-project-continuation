@@ -9,7 +9,7 @@ export const Route = createFileRoute("/app")({
       {
         title: "The Mindy app · whatsonyourmind",
         description:
-          "The free Mindy app: your people, your brain, your family tree, money and clipboard. Opens from WhatsApp, already signed in.",
+          "The free Mindy app opens on your mind: 48 things Mindy can do, lit as you use them, with one-tap tries, your people, money and family. Opens from WhatsApp, already signed in.",
       },
       "home",
     ),

@@ -9,7 +9,7 @@ export const Route = createFileRoute("/whatsapp")({
       {
         title: "Mindy on WhatsApp · whatsonyourmind",
         description:
-          "Mindy lives in WhatsApp. Say it in your own words or a voice note: ask a friend for money back, set reminders, check scams, look after family.",
+          "Mindy lives in WhatsApp. Say it in your own words or a voice note, or type mind to see all 48 things it can do: money back from friends, reminders, scam checks, family care.",
       },
       "home",
     ),

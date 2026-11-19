@@ -59,12 +59,12 @@ N = [
      ("demo", [("you", "Ramesh owes me 500"), ("mindy", "📒 Noted. Ramesh owes you ₹500. Say 'remind Ramesh' to nudge.")])),
     ("split", "money", "🧮", "Split anything", "Everyone's share, with pay links", r"^split ", ("cmd", "split 1200 between 3")),
     ("subs", "money", "📺", "Subscription radar", "Pinged before it renews", r"^(\w+ \d+ on the|my subscriptions|subscription)",
-     ("demo", [("you", "Netflix 649 on the 5th"), ("mindy", "📺 Tracking Netflix. I'll ping you 2 days before it renews.")])),
+     ("demo", [("you", "Netflix 15.99 on the 5th"), ("mindy", "📺 Tracking Netflix. I'll ping you 2 days before it renews.")])),
     ("spend", "money", "📊", "Where it went", "Send a statement; get the truth", r"^(my )?(spend|spending)|statement",
-     ("demo", [("you", "(sends bank statement)"), ("mindy", "💸 October: ₹38,200 out\n• Food delivery ₹8,400 (+30%)\n• Shopping ₹6,100")])),
+     ("demo", [("you", "(sends bank statement)"), ("mindy", "💸 October: ₹1,840 out\n• Food delivery ₹412 (+30%)\n• Shopping ₹296")])),
     ("gift", "money", "🎁", "Group gifts", "Everyone chips in; Mindy tracks who paid", r"^(group gift|gift pool|gift ideas|wishlist|shagun)",
-     ("demo", [("you", "group gift for Riya 3000 with Amit, Neha and Sam"), ("mindy", "🎁 ₹750 each. Neha ✅ Amit ✅ Sam ⏳")])),
-    ("tax", "money", "🧾", "Tax season, sorted", "Checklist, estimate, deadline", r"^(itr|tax|self assessment|my income is)", ("cmd", "itr")),
+     ("demo", [("you", "group gift for Riya 120 with Amit, Neha and Sam"), ("mindy", "🎁 ₹30 each. Neha ✅ Amit ✅ Sam ⏳")])),
+    ("tax", "money", "🧾", "Tax season, sorted", "Checklist, estimate, deadline", r"^(itr|tax|self assessment|my income is)", ("cmd", "tax checklist")),
 
     ("care", "family", "💊", "Medicine reminders", "They tap 'took it'; you know", r"^(care|medicine)",
      ("demo", [("their", "💊 9:00 · BP tablet [✅ Took it]"), ("mindy", "Mum took her 9:00 dose ✅")])),
@@ -74,14 +74,14 @@ N = [
     ("translate", "family", "🌍", "Speaks their language", "Nani's Gujarati, your English", r"^(language|reply in|speak)\b", ("cmd", "menu:lang")),
     ("birthday", "family", "🎂", "Never miss a birthday", "Gift idea 3 days before", r"birthday", ("demo", [("mindy", "🎁 Riya's birthday is in 3 days. Her wishlist: sketchbook, Lego.")])),
 
-    ("scam", "safety", "🛡️", "Scam check", "Forward anything odd", r"^(scam|is (this|it) (a )?(scam|safe|legit|real)|check this)", ("cmd", "is this safe? Dear customer your KYC expires today, click http://sbi-kyc-update.xyz")),
+    ("scam", "safety", "🛡️", "Scam check", "Forward anything odd", r"^(scam|is (this|it) (a )?(scam|safe|legit|real)|check this)", ("cmd", "is this safe? DHL: your parcel is on hold. Pay the 1.99 redelivery fee today at dhl-redelivery.top")),
     ("number", "safety", "📞", "Who's calling?", "Community reports, no contact upload", r"^(check|who is) (number )?\+?\d", ("cmd", "check number 9876500000")),
     ("checkme", "safety", "🫶", "Check on me", "Walking home late? Mindy watches", r"^check on me", ("demo", [("you", "check on me in 30 min"), ("mindy", "🫶 Are you OK? Reply safe."), ("mindy", "(no reply in 10 min → family gets your last location)")])),
     ("loan", "safety", "🚨", "Loan app alarm", "Predatory loans called out", r"\bloan\b", ("cmd", "your instant loan is pre-approved, pay processing fee 499")),
     ("really", "safety", "🔍", "Is it really them?", "The real person answers", r"^is (this|it) really", ("demo", [("you", "someone's calling as my son asking for money"), ("mindy", "🚨 He says it's NOT him. Hang up.")])),
     ("lostphone", "safety", "📵", "Lost phone? Do this", "Block SIM, UPI, banks, in order", r"(lost|stolen).{0,15}phone", ("cmd", "checklist lost phone")),
 
-    ("docs", "papers", "🗂️", "Expiry radar", "Passport, insurance, MOT, PUC", r"expir|valid till|renewal", ("demo", [("you", "passport expires 12 March 2029"), ("mindy", "🗂️ Saved. Reminders 60, 14 and 1 day before.")])),
+    ("docs", "papers", "🗂️", "Expiry radar", "Passport, visa, insurance, licence", r"expir|valid till|renewal", ("demo", [("you", "passport expires 12 March 2029"), ("mindy", "🗂️ Saved. Reminders 60, 14 and 1 day before.")])),
     ("schemes", "papers", "🏛️", "What you're owed", "Schemes and benefits you qualify for", r"^(schemes?|yojana|benefits)", ("cmd", "schemes")),
     ("checklist", "papers", "✅", "Life checklists", "Moving, new job, new baby…", r"^checklist", ("cmd", "checklist moving house")),
     ("staff", "papers", "🧹", "Staff and salaries", "Advances and days off, done", r"^staff\b", ("demo", [("you", "staff Sunita 12000 · Sunita absent · staff pay"), ("mindy", "🧹 Sunita: ₹11,600 this month")])),
@@ -171,12 +171,14 @@ def spark(db: DB, user: dict, uses: dict | None = None) -> dict | None:
     return {"id": k, "emoji": n["emoji"], "name": n["name"], "why": n["why"], "branch": n["branch"], "left_in_branch": left}
 
 
-def demo_text(node: str, user: dict, friend: str | None) -> str:
+def demo_text(node: str, user: dict, friend: str | None, cur: str = "₹") -> str:
+    """A preview of a neuron that would message someone else. Amounts shown in the user's own currency."""
     n = NODES[node]
-    me = (user.get("name") or "You").split(" ")[0]
+    me = (user.get("name") or "").split(" ")[0] or "Your friend"
     fr = friend or "Rahul"
     who = {"you": "You", "their": f"{fr}'s phone", "mindy": "Mindy"}
-    lines = [f"*{who[w]}:* {t.replace('{friend}', fr).replace('{me}', me)}" for w, t in n["try"][1]]
+    cur = cur or "$"
+    lines = [f"*{who[w]}:* {t.replace('{friend}', fr).replace('{me}', me).replace('₹', cur)}" for w, t in n["try"][1]]
     return f"{n['emoji']} *{n['name']}*: {n['why']}\n\n" + "\n".join(lines)
 
 

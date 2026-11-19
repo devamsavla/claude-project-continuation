@@ -9,7 +9,7 @@ export const Route = createFileRoute("/")({
       {
         title: "whatsonyourmind · Your Mindy talks to their Mindy",
         description:
-          "Everyone gets their own Mindy on WhatsApp. Your Mindy talks to their Mindy, so you never have to ask for money back, chase a plan or nag your mum yourself.",
+          "Everyone gets their own Mindy on WhatsApp. Your Mindy talks to their Mindy, so you never have to chase money, plans or your mum yourself. 48 things to try, one tap each.",
       },
       "home",
     ),

@@ -385,7 +385,7 @@ def make_more_router(db: DB, mindy, mindy_do=None) -> APIRouter:
         if kind == "demo":
             from . import m2m
             fr = (m2m.linked(db, me["id"]) or [{"name": None}])[0]["name"]
-            out = {"kind": "demo", "preview": neurons.demo_text(node, me, fr).replace("*", ""),
+            out = {"kind": "demo", "preview": neurons.demo_text(node, me, fr, countries.for_user(db, me)["cur"]).replace("*", ""),
                    "note": "A preview — nothing was sent. Say it for real in chat when you're ready."}
         elif what.startswith("menu:") or not mindy_do:
             out = {"kind": "open", "to": n["branch"]}

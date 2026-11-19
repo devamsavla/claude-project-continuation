@@ -33,6 +33,7 @@ body{margin:0;background:#07090A}
 .mm .nav nav a:hover{color:var(--cream)}
 .mm .nav .btn{min-height:42px;padding:0 18px;font-size:14px}
 @media(max-width:720px){.mm .nav nav a:not(.btn){display:none}}
+@media(max-width:430px){.mm .nav{padding:14px 16px;gap:10px}.mm .logo{font-size:16px;gap:6px}.mm .logo img{width:28px;height:28px}.mm .nav .btn{min-height:38px;padding:0 13px;font-size:13px;white-space:nowrap}}
 /* hero */
 .mm .hero{padding:36px 0 56px;text-align:center}
 .mm .hero h1{margin:14px auto 18px;max-width:14ch}
@@ -158,6 +159,42 @@ body{margin:0;background:#07090A}
 .mm footer nav{display:flex;flex-wrap:wrap;gap:18px}
 .mm footer a:hover{color:var(--cream)}
 @media(prefers-reduced-motion:reduce){.mm *{animation-duration:.01ms!important;transition:none!important}}
+
+/* the mind: 8 branches, 48 neurons */
+.mm .mbar{display:flex;align-items:center;gap:16px;margin-top:28px;font-family:var(--mono);font-size:13px;letter-spacing:.06em;color:var(--mute);text-transform:uppercase}
+.mm .mbar b{color:var(--cream);font-size:16px}
+.mm .mbar .track{flex:1;height:8px;border-radius:99px;background:var(--panel2);overflow:hidden}
+.mm .mbar .track i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--green),var(--mint));border-radius:99px;transition:width .5s cubic-bezier(.2,.9,.3,1)}
+.mm .brs{display:flex;gap:8px;flex-wrap:wrap;margin-top:18px}
+.mm .brs button{padding:8px 13px;border-radius:999px;border:1.5px solid var(--line);font-weight:700;font-size:14px;color:#C9CFD3;display:flex;gap:6px;align-items:center}
+.mm .brs button small{font-family:var(--mono);font-size:11px;color:var(--mute)}
+.mm .brs button[aria-pressed=true]{background:var(--cream);color:#0A0A0A;border-color:var(--cream)}
+.mm .brs button[aria-pressed=true] small{color:#555}
+.mm .mind{display:grid;grid-template-columns:1.08fr .92fr;gap:28px;align-items:start;margin-top:22px}
+.mm .mapw svg{width:100%;max-width:560px;display:block;margin:0 auto;user-select:none;-webkit-tap-highlight-color:transparent}
+.mm .mapw .nr,.mm .mapw .brn{cursor:pointer;transition:opacity .25s}
+.mm .mapw .nr:focus-visible,.mm .mapw .brn:focus-visible{outline:none}
+.mm .mapw .nr:focus-visible circle:last-child,.mm .mapw .brn:focus-visible circle{stroke:var(--mint);stroke-width:3}
+.mm .mapw .nr.sel circle:last-child{stroke:var(--cream);stroke-width:2.6}
+.mm .mapw .nr.spark circle:last-child{animation:mi-p 1.6s ease-in-out infinite}
+@keyframes mi-p{0%,100%{stroke-width:1.4}50%{stroke:var(--green);stroke-width:3.4}}
+.mm .mapw .pop{animation:mi-pop .6s cubic-bezier(.2,.9,.3,1.4)}
+@keyframes mi-pop{0%{transform:scale(.4)}100%{transform:scale(1)}}
+.mm .mcard{background:var(--panel);border:1.5px solid var(--line);border-radius:28px;padding:22px;position:sticky;top:18px;min-height:440px;display:flex;flex-direction:column}
+.mm .mcard .k{font-family:var(--mono);font-size:11.5px;letter-spacing:.12em;text-transform:uppercase}
+.mm .mcard h3{font-size:28px;margin:8px 0 4px;letter-spacing:-.02em}
+.mm .mcard .why{color:var(--mute);font-size:16px}
+.mm .mcard .msgs{margin:18px 0 6px;gap:8px}
+.mm .mcard .b{white-space:pre-line;font-size:14.5px}
+.mm .mcard .b.th{align-self:flex-start;background:transparent;border:1.5px dashed var(--line);border-bottom-left-radius:5px}
+.mm .mcard .b.th em{display:block;font-style:normal;font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;color:var(--mute);text-transform:uppercase;margin-bottom:3px}
+.mm .mcard .note{font-size:13px;color:var(--mute);margin-top:8px}
+.mm .mcard .acts{display:flex;gap:10px;flex-wrap:wrap;margin-top:auto;padding-top:18px}
+.mm .mcard .acts .btn{min-height:46px;padding:0 18px;font-size:15px}
+.mm .mcard .won{background:var(--deep);color:var(--mint);border-radius:14px;padding:10px 13px;font-weight:700;font-size:14.5px;margin-top:12px;animation:mm-pop .35s both}
+.mm .mkey{display:flex;gap:16px;justify-content:center;flex-wrap:wrap;font-size:13px;color:var(--mute);margin-top:6px}
+.mm .mkey i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:-1px}
+@media(max-width:900px){.mm .mind{grid-template-columns:1fr}.mm .mcard{position:static;min-height:0}.mm .mbar{flex-wrap:wrap;gap:10px}.mm .mbar .track{flex-basis:100%;order:3}}
 
 /* inner pages */
 .mm .phero{padding:40px 0 30px}

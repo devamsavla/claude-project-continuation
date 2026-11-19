@@ -84,14 +84,14 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       {
         name: "description",
         content:
-          "Mindy remembers for you: save anything on WhatsApp, get reminders, and plan with friends in the free Mindy app.",
+          "Your Mindy talks to their Mindy. A personal assistant on WhatsApp with 48 things to try: money back from friends, reminders, scam checks and family care.",
       },
       { name: "author", content: "whatsonyourmind" },
       { property: "og:title", content: "whatsonyourmind" },
       {
         property: "og:description",
         content:
-          "Mindy remembers for you: save anything on WhatsApp, get reminders, and plan with friends in the free Mindy app.",
+          "Your Mindy talks to their Mindy. A personal assistant on WhatsApp with 48 things to try: money back from friends, reminders, scam checks and family care.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },

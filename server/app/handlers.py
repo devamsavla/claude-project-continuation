@@ -243,7 +243,7 @@ class Mindy:
         if kind == "demo":
             from . import m2m
             fr = (m2m.linked(self.db, user["id"]) or [{"name": None}])[0]["name"]
-            await self.say(neurons.demo_text(node, user, (fr or "").split(" ")[0] or None) + "\n\n_That's a preview. When it's real, just say it in your own words._")
+            await self.say(neurons.demo_text(node, user, (fr or "").split(" ")[0] or None, countries.for_user(self.db, user)["cur"]) + "\n\n_That's a preview. When it's real, just say it in your own words._")
         elif what == "menu:lang":
             await self.more_reply(more.R("🌍 Which language should I speak?", list=[("q:lang_pref:" + c, l, "") for c, l in
                                    (("en", "English"), ("hi", "हिंदी"), ("hinglish", "Hinglish"), ("es", "Español"), ("ar", "العربية"),
@@ -616,7 +616,7 @@ class Mindy:
         return await self.links(f"{'🚗 Your car' if label == 'car' else '📍 ' + label.title()} (saved {ago_txt}).{note}\nTap to go there. *Street View* shows the spot in 3D.", lk[:2])
 
     async def scam_reply(self, user, text):
-        chk = await asyncio.to_thread(skills.check_message, self.db, text, str(user["id"]))
+        chk = await asyncio.to_thread(skills.check_message, self.db, text, str(user["id"]), True, countries.for_user(self.db, user).get("scam"))
         self.db.x("INSERT OR REPLACE INTO kv(k,v) VALUES(?,?)", (f"last_check:{user['id']}", text))
         return await self.say(chk["reply"])
 

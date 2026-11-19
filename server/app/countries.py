@@ -104,4 +104,5 @@ def _has_accounts(db) -> bool:
 
 def money(p: dict, n: float) -> str:
     cur = p.get("cur") or ""
-    return f"{cur}{n:,.0f}" if cur else f"{n:,.0f}"
+    v = f"{n:,.2f}" if round(n, 2) != round(n) and abs(n) < 1000 else f"{n:,.0f}"
+    return f"{cur}{v}"

@@ -214,7 +214,7 @@ def loan_alert(user, text, db) -> dict | None:
 
 # ---------------------------------------------------------------- subscriptions and card due dates
 SUBS = r"netflix|spotify|prime|amazon prime|hotstar|disney|youtube premium|youtube|icloud|google one|chatgpt|claude|gym|jio|airtel|vi |broadband|wifi|apple music|canva|adobe|xbox|playstation|zee5|sonyliv|audible|kindle|linkedin|duolingo"
-SUB_RX = re.compile(rf"^(?:(?:add )?sub(?:scription)?:?\s+)?({SUBS}|[a-z][\w ]{{1,20}}?)\s+(?:₹|rs\.?|inr|\$|£|€|aed|r\$)?\s*(\d[\d,]*)(?:\s*(?:(?:per|a|/|every)\s*(month|year|week)|(month)ly|(year)ly|(week)ly|annually))?(?:\s+on\s+(?:the\s+)?(\d{{1,2}})(?:st|nd|rd|th)?)?\s*$", re.I)
+SUB_RX = re.compile(rf"^(?:(?:add )?sub(?:scription)?:?\s+)?({SUBS}|[a-z][\w ]{{1,20}}?)\s+(?:₹|rs\.?|inr|\$|£|€|aed|r\$)?\s*(\d[\d,]*(?:\.\d{{1,2}})?)(?:\s*(?:(?:per|a|/|every)\s*(month|year|week)|(month)ly|(year)ly|(week)ly|annually))?(?:\s+on\s+(?:the\s+)?(\d{{1,2}})(?:st|nd|rd|th)?)?\s*$", re.I)
 
 
 def subscription(user, text, db) -> dict | None:
@@ -239,7 +239,8 @@ def subscription(user, text, db) -> dict | None:
     m = SUB_RX.match(low)
     if not m or not (re.match(SUBS, m.group(1)) or low.startswith(("sub ", "subscription"))):
         return None
-    name, amt = m.group(1).strip().title(), int(m.group(2).replace(",", ""))
+    name, amt = m.group(1).strip().title(), float(m.group(2).replace(",", ""))
+    amt = int(amt) if amt == int(amt) else amt
     per = next((g for g in m.groups()[2:6] if g), "month")
     day = int(m.group(7) or _today(user).day)
     if amt <= 0 or not 1 <= day <= 31:
