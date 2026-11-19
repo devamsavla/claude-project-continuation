@@ -501,3 +501,11 @@ def test_security(monkeypatch):
     assert client.post("/api/delete-account", headers=h, json={"confirm": "DELETE"}).status_code == 200
     for t in ("docs", "staff", "items", "facts"):
         assert db.one(f"SELECT COUNT(*) n FROM {t} WHERE user_id=?", (u["id"],))["n"] == 0
+
+
+def test_fumbles_page():
+    ext = "447700900395"
+    send(ext, "hi", name="Fi")
+    send(ext, "blorp the frobnicator")
+    page = client.get(f"/admin/fumbles?key={settings.admin_key}").text
+    assert "blorp the frobnicator" in page and "fumbled" in page

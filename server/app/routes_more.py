@@ -411,6 +411,27 @@ img{{width:min(360px,90vw);border-radius:24px}}a{{display:inline-block;margin-to
         return {"help": db.q("SELECT h.*, u.name FROM help_queue h JOIN users u ON u.id=h.user_id WHERE answered_at IS NULL ORDER BY h.id"),
                 "business": db.q("SELECT * FROM business_apps WHERE status='pending' ORDER BY id")}
 
+    @r.get("/admin/fumbles", response_class=HTMLResponse)
+    def fumbles(key: str, days: int = 7):
+        """Every message Mindy probably didn't understand, or that errored, for launch-week fixing."""
+        _admin(key)
+        db.x("CREATE TABLE IF NOT EXISTS fumbles(id INTEGER PRIMARY KEY, user_id INTEGER, text TEXT, reply TEXT, kind TEXT, created_at TEXT)")
+        since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        rows = db.q("SELECT kind, text, reply, created_at FROM fumbles WHERE created_at>? ORDER BY id DESC LIMIT 500", (since,))
+        top = db.q("SELECT lower(text) t, COUNT(*) n FROM fumbles WHERE created_at>? GROUP BY lower(text) ORDER BY n DESC LIMIT 20", (since,))
+        users = db.one("SELECT COUNT(DISTINCT user_id) n FROM messages WHERE created_at>?", (since,))["n"]
+        msgs = db.one("SELECT COUNT(*) n FROM messages WHERE direction='in' AND created_at>?", (since,))["n"]
+        esc = lambda x: (x or "").replace("&", "&amp;").replace("<", "&lt;")
+        errs = sum(1 for r_ in rows if r_["kind"] == "error")
+        return ("<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width'><title>Mindy fumbles</title>"
+                "<style>body{font:15px system-ui;margin:20px;max-width:900px}td{border-top:1px solid #ddd;padding:6px;vertical-align:top}.e{color:#b00}</style>"
+                f"<h1>Last {days} days</h1><p>{users} people · {msgs} messages · <b>{len(rows)}</b> fumbled ({round(100 * len(rows) / max(msgs, 1))}%) · "
+                f"<span class=e>{errs} errors</span></p><h2>Most repeated</h2><table>"
+                + "".join(f"<tr><td>{t['n']}×</td><td>{esc(t['t'])}</td></tr>" for t in top)
+                + "</table><h2>All</h2><table>"
+                + "".join(f"<tr><td class={'e' if r_['kind'] == 'error' else ''}>{r_['kind']}</td><td>{esc(r_['text'])}</td><td>{esc(r_['reply'])}</td><td>{r_['created_at'][:16]}</td></tr>" for r_ in rows)
+                + "</table>")
+
     @r.post("/admin/answer")
     async def answer(b: Body, key: str):
         _admin(key)

@@ -12,7 +12,7 @@ import re
 from . import brain, care, hooks, llm, more, places, skills
 from . import intent as semantic
 from .config import settings
-from .db import DB
+from .db import DB, now_iso
 from .instagram import ig
 from .telegram import tg
 from .whatsapp import wa
@@ -97,6 +97,8 @@ def fmt_local(dt_utc_iso: str, tz: str) -> str:
 _CONV: ContextVar[tuple] = ContextVar("conv", default=(wa, ""))
 _USER: ContextVar[dict | None] = ContextVar("user", default=None)
 _VOICE: ContextVar[bool] = ContextVar("voice", default=False)
+_SAID: ContextVar[list | None] = ContextVar("said", default=None)
+FUMBLE_RX = re.compile(r"^(Saved to \*(Notes|Ideas)\*|I couldn't find anything saved|Sorry, something went wrong|I can't open that)")
 CMD_RX = re.compile(r"^(remind|add |check|scam|show|my |what|where|how|help|khata|link|login|timezone|language|call yourself|split|gift|wishlist|staff|customer|bill )", re.I)
 
 
@@ -125,6 +127,9 @@ class Mindy:
 
     async def say(self, text: str, **kw):
         client, to = _CONV.get()
+        said = _SAID.get()
+        if said is not None:
+            said.append(text)
         return await client.text(to, await self._out(text), **kw)
 
     async def ask(self, text: str, buttons):
@@ -207,13 +212,29 @@ class Mindy:
             elif mtype == "location":
                 await self.on_location(user, msg["location"])
             elif mtype == "text":
+                said = []
+                _SAID.set(said)
                 await self.on_text(user, body, mid, msg.get("share"))
+                self.fumble(user, body, said)
                 await self.maybe_ask(user)
             else:
                 await self.say("I can't open that type of message yet, but text, links, photos and documents all work.")
-        except Exception:
+        except Exception as e:
             log.exception("handler failed")
+            self.fumble(user, (msg.get("text") or {}).get("body") or mtype, [], f"error: {type(e).__name__}: {e}"[:300])
             await self.say("Sorry, something went wrong on my side. Try that again in a moment?")
+
+    def fumble(self, user, text: str, said: list, error: str | None = None):
+        """Launch-week radar: remember messages Mindy probably didn't get (generic save, 'couldn't find', errors)."""
+        try:
+            first = said[0] if said else ""
+            if not error and not (FUMBLE_RX.match(first) and len(text.split()) <= 14 and not brain.URL_RE.search(text)):
+                return
+            self.db.x("CREATE TABLE IF NOT EXISTS fumbles(id INTEGER PRIMARY KEY, user_id INTEGER, text TEXT, reply TEXT, kind TEXT, created_at TEXT)")
+            self.db.x("INSERT INTO fumbles(user_id,text,reply,kind,created_at) VALUES(?,?,?,?,?)",
+                      (user["id"], text[:500], (error or first)[:300], "error" if error else "unsure", now_iso()))
+        except Exception:
+            log.exception("fumble log failed")
 
     async def maybe_ask(self, user):
         """Mindy asks: one tap question at the end of a conversation the person started (free on every channel)."""
